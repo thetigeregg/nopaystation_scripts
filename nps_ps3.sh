@@ -7,6 +7,7 @@
 # 3 game is only available physically
 # 4 link missing.
 # 5 game pkg already exists
+# 6 download failed
 
 # get directory where the scripts are located
 SCRIPT_DIR="$(dirname "$(readlink -f "$(which "${0}")")")"
@@ -119,26 +120,58 @@ then
     echo "\"${TITLE_ID}\" is only available via cartridge"
     exit 3
 else
-    if [ -f "${TITLE_ID}.pkg" ]
+    PKG_EXISTS=false
+    [ -f "${TITLE_ID}.pkg" ] && PKG_EXISTS=true
+
+    RAP_NEEDED=true
+    case "${RAP}" in
+        ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
+            RAP_NEEDED=false
+            ;;
+    esac
+
+    NEEDS_DOWNLOAD=false
+    if [ "${PKG_EXISTS}" = false ]
+    then
+        NEEDS_DOWNLOAD=true
+    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${TITLE_ID}.rap" ]
+    then
+        NEEDS_DOWNLOAD=true
+    fi
+
+    if [ "${NEEDS_DOWNLOAD}" = false ]
     then
         # print this to stderr
         >&2 echo "File \"${TITLE_ID}.pkg\" already exists."
         exit 5
-    else
+    fi
+
+    if [ "${PKG_EXISTS}" = false ]
+    then
         my_download_file "${LINK}" "${TITLE_ID}.pkg"
+        if [ ${?} -ne 0 ]
+        then
+            >&2 echo "Download of \"${TITLE_ID}.pkg\" failed."
+            rm -f "${TITLE_ID}.pkg"
+            exit 6
+        fi
+
         if [ -n "${LIST_SHA256}" ]
         then
             FILE_SHA256="$(my_sha256 "${TITLE_ID}.pkg")"
             compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
         fi
+    fi
 
-        case "${RAP}" in
-            ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
-                ;;
-            *)
-                my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${TITLE_ID}.rap"
-                ;;
-        esac
+    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${TITLE_ID}.rap" ]
+    then
+        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${TITLE_ID}.rap"
+        if [ ${?} -ne 0 ]
+        then
+            >&2 echo "Download of RAP for \"${TITLE_ID}\" failed."
+            rm -f "${TITLE_ID}.rap"
+            exit 6
+        fi
     fi
 fi
 exit 0

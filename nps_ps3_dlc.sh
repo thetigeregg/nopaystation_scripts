@@ -7,6 +7,7 @@
 # 2 no DLC available
 # 4 not all links available
 # 5 one or more DLC already downloaded (skipped)
+# 6 one or more downloads failed
 
 # get directory where the scripts are located
 SCRIPT_DIR="$(dirname "$(readlink -f "$(which "${0}")")")"
@@ -62,6 +63,7 @@ LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
 
 MISSING_COUNT=0
 EXISTING_COUNT=0
+FAILED_COUNT=0
 
 i=1
 while [ "${i}" -le "${LINE_COUNT}" ]
@@ -84,7 +86,26 @@ do
 
     FILE_NAME="$(sanitize_filename "${NAME}") [${CONTENT_ID}]"
 
-    if [ -f "${DESTDIR}_dlc/${FILE_NAME}.pkg" ]
+    PKG_EXISTS=false
+    [ -f "${DESTDIR}_dlc/${FILE_NAME}.pkg" ] && PKG_EXISTS=true
+
+    RAP_NEEDED=true
+    case "${RAP}" in
+        ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
+            RAP_NEEDED=false
+            ;;
+    esac
+
+    NEEDS_DOWNLOAD=false
+    if [ "${PKG_EXISTS}" = false ]
+    then
+        NEEDS_DOWNLOAD=true
+    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${DESTDIR}_dlc/${FILE_NAME}.rap" ]
+    then
+        NEEDS_DOWNLOAD=true
+    fi
+
+    if [ "${NEEDS_DOWNLOAD}" = false ]
     then
         >&2 echo "File \"${FILE_NAME}.pkg\" already exists."
         EXISTING_COUNT=$((EXISTING_COUNT + 1))
@@ -93,23 +114,40 @@ do
 
     mkdir -p "${DESTDIR}_dlc"
 
-    my_download_file "${LINK}" "${DESTDIR}_dlc/${FILE_NAME}.pkg"
-    if [ -n "${LIST_SHA256}" ]
+    if [ "${PKG_EXISTS}" = false ]
     then
-        FILE_SHA256="$(my_sha256 "${DESTDIR}_dlc/${FILE_NAME}.pkg")"
-        compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
+        my_download_file "${LINK}" "${DESTDIR}_dlc/${FILE_NAME}.pkg"
+        if [ ${?} -ne 0 ]
+        then
+            >&2 echo "Download of \"${FILE_NAME}.pkg\" failed."
+            rm -f "${DESTDIR}_dlc/${FILE_NAME}.pkg"
+            FAILED_COUNT=$((FAILED_COUNT + 1))
+            continue
+        fi
+
+        if [ -n "${LIST_SHA256}" ]
+        then
+            FILE_SHA256="$(my_sha256 "${DESTDIR}_dlc/${FILE_NAME}.pkg")"
+            compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
+        fi
     fi
 
-    case "${RAP}" in
-        ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
-            ;;
-        *)
-            my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${DESTDIR}_dlc/${FILE_NAME}.rap"
-            ;;
-    esac
+    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${DESTDIR}_dlc/${FILE_NAME}.rap" ]
+    then
+        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${DESTDIR}_dlc/${FILE_NAME}.rap"
+        if [ ${?} -ne 0 ]
+        then
+            >&2 echo "Download of RAP for \"${FILE_NAME}\" failed."
+            rm -f "${DESTDIR}_dlc/${FILE_NAME}.rap"
+            FAILED_COUNT=$((FAILED_COUNT + 1))
+        fi
+    fi
 done
 
-if [ "${MISSING_COUNT}" -gt 0 ]
+if [ "${FAILED_COUNT}" -gt 0 ]
+then
+    exit 6
+elif [ "${MISSING_COUNT}" -gt 0 ]
 then
     exit 4
 elif [ "${EXISTING_COUNT}" -gt 0 ]
