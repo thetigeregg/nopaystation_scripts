@@ -58,7 +58,7 @@ then
     exit 2
 fi
 
-LIST=$(grep "^${GAME_ID}" "${TSV_FILE}" | tr -d '\r' | cut -f"3,4,5,6,10")
+LIST=$(grep "^${GAME_ID}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,10")
 LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
 
 MISSING_COUNT=0
@@ -71,11 +71,12 @@ do
     ROW=$(echo "${LIST}" | sed -n "${i}p")
     i=$((i + 1))
 
-    NAME=$(echo "${ROW}" | cut -f1)
-    LINK=$(echo "${ROW}" | cut -f2)
-    RAP=$(echo "${ROW}" | cut -f3)
-    CONTENT_ID=$(echo "${ROW}" | cut -f4)
-    LIST_SHA256=$(echo "${ROW}" | cut -f5)
+    REGION=$(echo "${ROW}" | cut -f1)
+    NAME=$(echo "${ROW}" | cut -f2)
+    LINK=$(echo "${ROW}" | cut -f3)
+    RAP=$(echo "${ROW}" | cut -f4)
+    CONTENT_ID=$(echo "${ROW}" | cut -f5)
+    LIST_SHA256=$(echo "${ROW}" | cut -f6)
 
     if [ "${LINK}" = "MISSING" ]
     then
@@ -84,10 +85,12 @@ do
         continue
     fi
 
-    FILE_NAME="$(sanitize_filename "${NAME}") [${CONTENT_ID}]"
+    FILE_NAME="$(sanitize_filename "${NAME}") [${CONTENT_ID}] [${REGION}]"
+    PKG_PATH="${DESTDIR}/dlc/${FILE_NAME}.pkg"
+    RAP_PATH="${DESTDIR}/dlc/${FILE_NAME}.rap"
 
     PKG_EXISTS=false
-    [ -f "${DESTDIR}_dlc/${FILE_NAME}.pkg" ] && PKG_EXISTS=true
+    [ -f "${PKG_PATH}" ] && PKG_EXISTS=true
 
     RAP_NEEDED=true
     case "${RAP}" in
@@ -100,7 +103,7 @@ do
     if [ "${PKG_EXISTS}" = false ]
     then
         NEEDS_DOWNLOAD=true
-    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${DESTDIR}_dlc/${FILE_NAME}.rap" ]
+    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
     then
         NEEDS_DOWNLOAD=true
     fi
@@ -112,33 +115,33 @@ do
         continue
     fi
 
-    mkdir -p "${DESTDIR}_dlc"
+    mkdir -p "${DESTDIR}/dlc"
 
     if [ "${PKG_EXISTS}" = false ]
     then
-        my_download_file "${LINK}" "${DESTDIR}_dlc/${FILE_NAME}.pkg"
+        my_download_file "${LINK}" "${PKG_PATH}"
         if [ ${?} -ne 0 ]
         then
             >&2 echo "Download of \"${FILE_NAME}.pkg\" failed."
-            rm -f "${DESTDIR}_dlc/${FILE_NAME}.pkg"
+            rm -f "${PKG_PATH}"
             FAILED_COUNT=$((FAILED_COUNT + 1))
             continue
         fi
 
         if [ -n "${LIST_SHA256}" ]
         then
-            FILE_SHA256="$(my_sha256 "${DESTDIR}_dlc/${FILE_NAME}.pkg")"
+            FILE_SHA256="$(my_sha256 "${PKG_PATH}")"
             compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
         fi
     fi
 
-    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${DESTDIR}_dlc/${FILE_NAME}.rap" ]
+    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
     then
-        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${DESTDIR}_dlc/${FILE_NAME}.rap"
+        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${RAP_PATH}"
         if [ ${?} -ne 0 ]
         then
             >&2 echo "Download of RAP for \"${FILE_NAME}\" failed."
-            rm -f "${DESTDIR}_dlc/${FILE_NAME}.rap"
+            rm -f "${RAP_PATH}"
             FAILED_COUNT=$((FAILED_COUNT + 1))
         fi
     fi

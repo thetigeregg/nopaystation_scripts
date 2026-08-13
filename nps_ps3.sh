@@ -101,6 +101,13 @@ else
     SELECTED_LINE=$(echo "${MATCHES}" | sed -n "${CHOICE}p")
 fi
 
+# recompute from the finally-selected line, not whatever the display loop last set
+REGION=$(echo "${SELECTED_LINE}" | cut -f2)
+NAME=$(echo "${SELECTED_LINE}" | cut -f3)
+
+FOLDER_NAME="$(sanitize_filename "${NAME}") [${TITLE_ID}] [${REGION}]"
+echo "${FOLDER_NAME}" > "${TITLE_ID}.txt"
+
 # get link, rap filename, content id and sha256sum
 LIST=$(echo "${SELECTED_LINE}" | cut -f"1,4,5,6,10")
 
@@ -120,8 +127,11 @@ then
     echo "\"${TITLE_ID}\" is only available via cartridge"
     exit 3
 else
+    PKG_PATH="${FOLDER_NAME}/${FOLDER_NAME}.pkg"
+    RAP_PATH="${FOLDER_NAME}/${FOLDER_NAME}.rap"
+
     PKG_EXISTS=false
-    [ -f "${TITLE_ID}.pkg" ] && PKG_EXISTS=true
+    [ -f "${PKG_PATH}" ] && PKG_EXISTS=true
 
     RAP_NEEDED=true
     case "${RAP}" in
@@ -134,7 +144,7 @@ else
     if [ "${PKG_EXISTS}" = false ]
     then
         NEEDS_DOWNLOAD=true
-    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${TITLE_ID}.rap" ]
+    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
     then
         NEEDS_DOWNLOAD=true
     fi
@@ -142,34 +152,36 @@ else
     if [ "${NEEDS_DOWNLOAD}" = false ]
     then
         # print this to stderr
-        >&2 echo "File \"${TITLE_ID}.pkg\" already exists."
+        >&2 echo "File \"${PKG_PATH}\" already exists."
         exit 5
     fi
 
+    mkdir -p "${FOLDER_NAME}"
+
     if [ "${PKG_EXISTS}" = false ]
     then
-        my_download_file "${LINK}" "${TITLE_ID}.pkg"
+        my_download_file "${LINK}" "${PKG_PATH}"
         if [ ${?} -ne 0 ]
         then
-            >&2 echo "Download of \"${TITLE_ID}.pkg\" failed."
-            rm -f "${TITLE_ID}.pkg"
+            >&2 echo "Download of \"${PKG_PATH}\" failed."
+            rm -f "${PKG_PATH}"
             exit 6
         fi
 
         if [ -n "${LIST_SHA256}" ]
         then
-            FILE_SHA256="$(my_sha256 "${TITLE_ID}.pkg")"
+            FILE_SHA256="$(my_sha256 "${PKG_PATH}")"
             compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
         fi
     fi
 
-    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${TITLE_ID}.rap" ]
+    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
     then
-        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${TITLE_ID}.rap"
+        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${RAP_PATH}"
         if [ ${?} -ne 0 ]
         then
             >&2 echo "Download of RAP for \"${TITLE_ID}\" failed."
-            rm -f "${TITLE_ID}.rap"
+            rm -f "${RAP_PATH}"
             exit 6
         fi
     fi
