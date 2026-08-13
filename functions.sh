@@ -122,6 +122,20 @@ check_valid_psp_id() {
     fi
 }
 
+check_valid_ps3_id() {
+    local TITLE_ID="${1}"
+    if ! echo "${TITLE_ID}" | grep -q -E -i '[A-Z]{4}[0-9]{5}'
+    then
+        echo ""
+        echo "Error"
+        echo "Title ID is not valid."
+        echo "It should be the following format:"
+        echo "BCUS01234"
+        echo "Check your title id parameter."
+        exit 1
+    fi
+}
+
 yesno_checksum() {
     local GAME_ID="${1}"
     while true
