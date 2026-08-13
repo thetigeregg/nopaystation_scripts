@@ -80,6 +80,11 @@ region_rename() {
     echo ${NAME}
 }
 
+sanitize_filename() {
+    local NAME="${1}"
+    echo "${NAME}" | tr -s '/\\:*?"<>|' '_'
+}
+
 check_valid_psv_id() {
     local TITLE_ID="${1}"
     if ! echo "${TITLE_ID}" | grep -q -E -i 'PCS[ABCDEFGH][0-9]{5}'
