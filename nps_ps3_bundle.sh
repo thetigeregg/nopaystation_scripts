@@ -13,11 +13,12 @@ my_usage(){
     echo ""
     echo "Parameters:"
     echo "--nps-dir|-d <DIR>               path to the directory containing the tsv files"
+    echo "--title-id|-t <TITLE ID(S)>      one or more title IDs, quoted and space-separated"
     echo ""
     echo "All parameters are required."
     echo ""
     echo "Usage:"
-    echo "${0} --nps-dir </path/to/nps/directory> --title-id <TITLE ID>"
+    echo "${0} --nps-dir </path/to/nps/directory> --title-id \"<TITLE ID> [<TITLE ID> ...]\""
 }
 
 ### check if nps tsv file directory exists
@@ -39,8 +40,7 @@ do
         -t|--title-id)
             test -n "${1}"
             exit_if_fail "\"-t\" used without <TITLE ID>"
-            check_valid_ps3_id "${1}"
-            TITLE_ID="${1}"
+            TITLE_ID_ARG="${1}"
             shift
             ;;
         -d|--nps-dir)
@@ -63,7 +63,7 @@ done
 MY_BINARIES="sed grep file"
 check_binaries "${MY_BINARIES}"
 
-if [ -z "${TITLE_ID}" ]
+if [ -z "${TITLE_ID_ARG}" ]
 then
     echo "ERROR:"
     echo "<TITLE ID> is missing."
@@ -76,6 +76,15 @@ then
     echo 'Use "-d <NPS DIR>" parameter'
     exit 1
 fi
+
+# split and validate every title ID up front, before any downloads start
+TITLE_IDS=""
+for id in ${TITLE_ID_ARG}
+do
+    check_valid_ps3_id "${id}"
+    id=$(echo "${id}" | tr '[:lower:]' '[:upper:]')
+    TITLE_IDS="${TITLE_IDS} ${id}"
+done
 
 ### check if nps tsv file directory exists
 if [ ! -d "${NPS_DIR}" ]
@@ -96,32 +105,54 @@ do
     fi
 done
 
-### Download the chosen game
-nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}"
-GAME_STATUS=${?}
+SUCCESS_COUNT=0
+FAIL_COUNT=0
 
-if [ ${GAME_STATUS} -eq 5 ]
+for TITLE_ID in ${TITLE_IDS}
+do
+    echo "--------------------------------------------"
+    echo "Downloading and packing \"${TITLE_ID}\"..."
+
+    ### Download the chosen game
+    nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}"
+    GAME_STATUS=${?}
+
+    if [ ${GAME_STATUS} -eq 5 ]
+    then
+        echo ""
+        echo "Game already downloaded, continuing to DLC step."
+    elif [ ${GAME_STATUS} -ne 0 ]
+    then
+        echo ""
+        echo "Game cannot be downloaded. Skipping further steps for \"${TITLE_ID}\"."
+        rm -f "${TITLE_ID}.txt"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        continue
+    fi
+
+    ### Get name of the game folder from generated txt created via nps_ps3.sh
+    FOLDER_NAME="$(cat "${TITLE_ID}.txt")"
+
+    ### Download available DLC
+    DESTDIR="${FOLDER_NAME}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
+
+    ### remove temporary game name file
+    rm -f "${TITLE_ID}.txt"
+
+    ### Run post scripts
+    if [ -x ./nps_ps3_bundle_post.sh ]
+    then
+        ./nps_ps3_bundle_post.sh "${FOLDER_NAME}"
+    fi
+
+    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+done
+
+echo "--------------------------------------------"
+echo "Finished: ${SUCCESS_COUNT} succeeded, ${FAIL_COUNT} failed."
+
+if [ ${FAIL_COUNT} -gt 0 ]
 then
-    echo ""
-    echo "Game already downloaded, continuing to DLC step."
-elif [ ${GAME_STATUS} -ne 0 ]
-then
-    echo ""
-    echo "Game cannot be downloaded. Skipping further steps."
     exit 1
 fi
-
-### Get name of the game folder from generated txt created via nps_ps3.sh
-FOLDER_NAME="$(cat "${TITLE_ID}.txt")"
-
-### Download available DLC
-DESTDIR="${FOLDER_NAME}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
-
-### remove temporary game name file
-rm -f "${TITLE_ID}.txt"
-
-### Run post scripts
-if [ -x ./nps_ps3_bundle_post.sh ]
-then
-    ./nps_ps3_bundle_post.sh "${FOLDER_NAME}"
-fi
+exit 0
