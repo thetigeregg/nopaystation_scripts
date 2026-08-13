@@ -44,6 +44,8 @@ then
 fi
 
 check_valid_ps3_id "${TITLE_ID}"
+# TSV lookups are case-sensitive, but check_valid_ps3_id accepts lowercase, so normalize
+TITLE_ID=$(echo "${TITLE_ID}" | tr '[:lower:]' '[:upper:]')
 
 # check if MEDIA ID is found in download list
 MATCHES=$(grep "^${TITLE_ID}" "${TSV_FILE}" | tr -d '\r')
@@ -124,13 +126,19 @@ else
         exit 5
     else
         my_download_file "${LINK}" "${TITLE_ID}.pkg"
-        FILE_SHA256="$(my_sha256 "${TITLE_ID}.pkg")"
-        compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
-
-        if [ "${RAP}" != "MISSING" ] && [ -n "${RAP}" ]
+        if [ -n "${LIST_SHA256}" ]
         then
-            my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${TITLE_ID}.rap"
+            FILE_SHA256="$(my_sha256 "${TITLE_ID}.pkg")"
+            compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
         fi
+
+        case "${RAP}" in
+            ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
+                ;;
+            *)
+                my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${TITLE_ID}.rap"
+                ;;
+        esac
     fi
 fi
 exit 0

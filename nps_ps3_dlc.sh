@@ -43,6 +43,8 @@ then
 fi
 
 check_valid_ps3_id "${GAME_ID}"
+# TSV lookups are case-sensitive, but check_valid_ps3_id accepts lowercase, so normalize
+GAME_ID=$(echo "${GAME_ID}" | tr '[:lower:]' '[:upper:]')
 
 # make DESTDIR overridable
 if [ -z "${DESTDIR}" ]
@@ -92,13 +94,19 @@ do
     mkdir -p "${DESTDIR}_dlc"
 
     my_download_file "${LINK}" "${DESTDIR}_dlc/${FILE_NAME}.pkg"
-    FILE_SHA256="$(my_sha256 "${DESTDIR}_dlc/${FILE_NAME}.pkg")"
-    compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
-
-    if [ "${RAP}" != "MISSING" ] && [ -n "${RAP}" ]
+    if [ -n "${LIST_SHA256}" ]
     then
-        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${DESTDIR}_dlc/${FILE_NAME}.rap"
+        FILE_SHA256="$(my_sha256 "${DESTDIR}_dlc/${FILE_NAME}.pkg")"
+        compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
     fi
+
+    case "${RAP}" in
+        ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
+            ;;
+        *)
+            my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${DESTDIR}_dlc/${FILE_NAME}.rap"
+            ;;
+    esac
 done
 
 if [ "${MISSING_COUNT}" -gt 0 ]

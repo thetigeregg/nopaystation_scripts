@@ -21,7 +21,7 @@ my_sha256() {
         "sha256sum")
         sha256sum "${file}" | awk '{ print $1 }' ;;
         "sha256")
-        sha256    "${file}" | awk '{ print $4 }' ;;
+        sha256    "${file}" | awk '{ print $NF }' ;;
     esac
 }
 
