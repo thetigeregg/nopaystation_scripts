@@ -91,14 +91,32 @@ do
     fi
 done
 
+# Title IDs picked via the SerialStation search mode (ctrl-s) get their
+# game-download step skipped later on - collected here while parsing the
+# search results. IDs supplied directly via "-t" never populate this list.
+API_TITLE_IDS=""
+
 if [ -z "${TITLE_ID_ARG}" ]
 then
-    TITLE_ID_ARG="$(ps3_typeahead_search "${NPS_DIR}/PS3_GAMES.tsv" "1" | tr '\n' ' ')"
-    if [ -z "$(echo "${TITLE_ID_ARG}" | tr -d '[:space:]')" ]
+    SEARCH_RESULT="$(ps3_typeahead_search "${NPS_DIR}/PS3_GAMES.tsv" "1")"
+    if [ -z "$(echo "${SEARCH_RESULT}" | tr -d '[:space:]')" ]
     then
         echo "No games selected."
         exit 1
     fi
+
+    TITLE_ID_ARG=""
+    while IFS="$(printf '\t')" read -r SRC ID
+    do
+        [ -z "${ID}" ] && continue
+        TITLE_ID_ARG="${TITLE_ID_ARG} ${ID}"
+        if [ "${SRC}" = "api" ]
+        then
+            API_TITLE_IDS="${API_TITLE_IDS} ${ID}"
+        fi
+    done <<EOF
+${SEARCH_RESULT}
+EOF
 fi
 
 # split and validate every title ID up front, before any downloads start
@@ -118,18 +136,33 @@ do
     echo "--------------------------------------------"
     echo "Downloading and packing \"${TITLE_ID}\"..."
 
-    ### Download the chosen game
-    nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}"
-    GAME_STATUS=${?}
+    ### Titles found via SerialStation search never get a game-download
+    ### attempt - that search mode exists specifically for titles that may
+    ### have no PS3_GAMES.tsv row at all, so go straight to DLC.
+    IS_API_SOURCED=false
+    case " ${API_TITLE_IDS} " in
+        *" ${TITLE_ID} "*) IS_API_SOURCED=true ;;
+    esac
 
-    if [ ${GAME_STATUS} -eq 5 ]
+    if [ "${IS_API_SOURCED}" = true ]
     then
         echo ""
-        echo "Game already downloaded, continuing to DLC step."
-    elif [ ${GAME_STATUS} -ne 0 ]
-    then
-        echo ""
-        echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
+        echo "\"${TITLE_ID}\" was found via SerialStation search - checking DLC only."
+        GAME_STATUS=1
+    else
+        ### Download the chosen game
+        nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}"
+        GAME_STATUS=${?}
+
+        if [ ${GAME_STATUS} -eq 5 ]
+        then
+            echo ""
+            echo "Game already downloaded, continuing to DLC step."
+        elif [ ${GAME_STATUS} -ne 0 ]
+        then
+            echo ""
+            echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
+        fi
     fi
 
     ### Get name of the game folder from generated txt created via nps_ps3.sh,

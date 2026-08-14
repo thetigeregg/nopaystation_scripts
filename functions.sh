@@ -194,7 +194,7 @@ ps3_serialstation_search() {
         {
             id = $1; ttype = $2; ctype = $3; name = $4
             mtype = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
-            printf "%s\t%-9s %-11s %-8s %-6s %s\n", id, id, region(ttype), mtype, ctype, name
+            printf "api\t%s\t%-9s %-11s %-8s %-6s %s\n", id, id, region(ttype), mtype, ctype, name
         }
     '
 }
@@ -204,9 +204,14 @@ ps3_serialstation_search() {
 # columns), with in-session key bindings to switch to a one-shot
 # SerialStation name search (ctrl-s - finds titles PS3_GAMES.tsv has no
 # row for at all), back to the local results (ctrl-r), and to open the
-# highlighted title's SerialStation page in a browser (ctrl-o). Prints the
-# selected Title ID(s) on stdout (one per line if MULTI="1"); prints
-# nothing if the user cancels without selecting anything.
+# highlighted title's SerialStation page in a browser (ctrl-o).
+#
+# Every candidate row carries its origin ("local" or "api") as a hidden
+# first field. Single-select (MULTI != "1", used by nps_ps3.sh) still
+# prints a bare Title ID per line, unchanged. Multi-select (MULTI="1",
+# used by nps_ps3_bundle.sh) prints "<source>\t<TITLE_ID>" per line
+# instead, so the caller can tell which picks came from the SerialStation
+# search. Prints nothing if the user cancels without selecting anything.
 ps3_typeahead_search() {
     local GAMES_TSV="${1}"
     local MULTI="${2}"
@@ -228,7 +233,7 @@ ps3_typeahead_search() {
             id = $1; region = $2; name = $3; link = $4; size = $9
             type = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
             if (link == "MISSING" || link == "CART ONLY") name = name " [NO LINK]"
-            printf "%s\t%-9s %-7s %-8s %-8s %s\n", id, id, region, type, human(size), name
+            printf "local\t%s\t%-9s %-7s %-8s %-8s %s\n", id, id, region, type, human(size), name
         }
     ' > "${CANDIDATES_FILE}"
 
@@ -259,18 +264,20 @@ EOF
     local HEADER="enter:select  tab:multi-select  ctrl-s:search SerialStation  ctrl-r:back to local results  ctrl-o:open on SerialStation"
 
     local MULTI_FLAG=""
+    local OUT_FIELDS="2"
     if [ "${MULTI}" = "1" ]
     then
         MULTI_FLAG="--multi"
+        OUT_FIELDS="1,2"
     fi
 
-    cat "${CANDIDATES_FILE}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. ${MULTI_FLAG} \
+    cat "${CANDIDATES_FILE}" | fzf --delimiter="$(printf '\t')" --with-nth=3.. ${MULTI_FLAG} \
         --height=90% --border --prompt="Search PS3 game title> " \
         --header="${HEADER}" \
         --bind "ctrl-s:reload(${SEARCH_SCRIPT} {q})" \
         --bind "ctrl-r:reload(cat ${CANDIDATES_FILE})" \
-        --bind "ctrl-o:execute-silent(${OPEN_SCRIPT} {1})" \
-        | cut -f1
+        --bind "ctrl-o:execute-silent(${OPEN_SCRIPT} {2})" \
+        | cut -f"${OUT_FIELDS}"
 }
 
 SERIALSTATION_API_BASE="https://api.serialstation.com/v1"
