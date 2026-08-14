@@ -74,8 +74,24 @@ then
     exit 2
 fi
 
+# Best-effort guess at the game's own region from its Title ID, matching
+# PS3_DLCS.tsv's own short region-code vocabulary (confirmed: only ASIA,
+# EU, JP, US appear there) - distinct from functions.sh's region(), which
+# outputs display words like "Europe" for the unrelated SerialStation
+# search UI.
+ps3_dlc_region_guess() {
+    case "$(echo "${1}" | cut -c3)" in
+        A) echo "ASIA" ;;
+        E) echo "EU" ;;
+        J|P) echo "JP" ;;
+        U) echo "US" ;;
+        *) echo "" ;;
+    esac
+}
+
 LIST=$(grep -E "${GREP_PATTERN}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,9,10")
 LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
+DISTINCT_REGIONS="$(echo "${LIST}" | cut -f1 | sort -u)"
 
 # Let the user pick which of the matched DLC to actually download, with
 # everything pre-selected by default so Enter alone reproduces
@@ -84,14 +100,48 @@ LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
 # interactively, so scripted/batch usage never hangs on fzf input.
 SELECTED_CONTENT_IDS=""
 PICKER_RAN=false
+CHOSEN_REGION="ALL"
 if [ "${NPS_DLC_AUTO_ALL}" != "1" ] && [ -t 0 ] && [ -t 1 ]
 then
     PICKER_RAN=true
+
+    # When DLC spans more than one region, ask which region to start
+    # from before showing individual DLC - the game's own guessed region
+    # (if present) is offered first, with an explicit "all regions"
+    # escape hatch to fall back to today's show-everything behavior.
+    if [ "$(echo "${DISTINCT_REGIONS}" | wc -l | tr -d ' ')" -gt 1 ]
+    then
+        GUESSED_REGION="$(ps3_dlc_region_guess "${GAME_ID}")"
+        REGION_CANDIDATES=""
+        if [ -n "${GUESSED_REGION}" ] && echo "${DISTINCT_REGIONS}" | grep -qx "${GUESSED_REGION}"
+        then
+            REGION_CANDIDATES="${GUESSED_REGION}	${GUESSED_REGION} (game's region)"
+        fi
+        REGION_CANDIDATES="${REGION_CANDIDATES}
+$(echo "${DISTINCT_REGIONS}" | grep -vx "${GUESSED_REGION}" | awk '{printf "%s\t%s\n", $0, $0}')
+ALL	All regions - show everything"
+
+        CHOSEN_REGION="$(echo "${REGION_CANDIDATES}" | awk 'NF' | fzf \
+            --height=90% --border --prompt="Select a region> " \
+            --header="enter:confirm  esc:download none" \
+            --delimiter="$(printf '\t')" --with-nth=2 \
+            | cut -f1)"
+
+        if [ -z "${CHOSEN_REGION}" ]
+        then
+            exit 2
+        fi
+    fi
+
     # human_size() is a shell function (not awk), so build the candidate
     # list with a plain read loop rather than awk.
     DLC_CANDIDATES="$(echo "${LIST}" | while IFS="$(printf '\t')" read -r REGION NAME LINK RAP CONTENT_ID SIZE SHA
     do
         [ -z "${CONTENT_ID}" ] && continue
+        if [ "${CHOSEN_REGION}" != "ALL" ] && [ "${REGION}" != "${CHOSEN_REGION}" ]
+        then
+            continue
+        fi
         DISPLAY_NAME="${NAME}"
         if [ "${LINK}" = "MISSING" ]
         then
