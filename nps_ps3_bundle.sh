@@ -129,17 +129,32 @@ do
     elif [ ${GAME_STATUS} -ne 0 ]
     then
         echo ""
-        echo "Game cannot be downloaded. Skipping further steps for \"${TITLE_ID}\"."
-        rm -f "${TITLE_ID}.txt"
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        continue
+        echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
     fi
 
-    ### Get name of the game folder from generated txt created via nps_ps3.sh
-    FOLDER_NAME="$(cat "${TITLE_ID}.txt")"
+    ### Get name of the game folder from generated txt created via nps_ps3.sh,
+    ### or fall back to a DLC-only folder name when the Title ID has no
+    ### PS3_GAMES.tsv row at all (nps_ps3.sh never wrote the txt file).
+    if [ -f "${TITLE_ID}.txt" ]
+    then
+        FOLDER_NAME="$(cat "${TITLE_ID}.txt")"
+    else
+        # Best-effort, non-fatal lookup: unlike serialstation_fetch (which
+        # exit()s loudly on failure), a lookup failure here must not abort
+        # the run - we still want to try the DLC step either way.
+        NAME="$(curl -fsS "${SERIALSTATION_API_BASE}/title-ids/${TITLE_ID}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)"
+        if [ -n "${NAME}" ]
+        then
+            FOLDER_NAME="$(sanitize_filename "${NAME}") [${TITLE_ID}]"
+        else
+            echo "Could not fetch a display name for \"${TITLE_ID}\"; using the bare Title ID for the DLC folder."
+            FOLDER_NAME="${TITLE_ID}"
+        fi
+    fi
 
     ### Download available DLC
     DESTDIR="${FOLDER_NAME}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
+    DLC_STATUS=${?}
 
     ### remove temporary game name file
     rm -f "${TITLE_ID}.txt"
@@ -150,7 +165,28 @@ do
         ./nps_ps3_bundle_post.sh "${FOLDER_NAME}"
     fi
 
-    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    # A title counts as successful if either the game or its DLC actually
+    # produced something - nps_ps3_dlc.sh's exit code alone can't tell
+    # "partially missing but some downloaded" from "nothing downloaded",
+    # so check the DLC output directory directly.
+    GAME_OK=false
+    if [ ${GAME_STATUS} -eq 0 ] || [ ${GAME_STATUS} -eq 5 ]
+    then
+        GAME_OK=true
+    fi
+
+    DLC_OK=false
+    if [ -d "${FOLDER_NAME}/dlc" ] && [ -n "$(find "${FOLDER_NAME}/dlc" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ]
+    then
+        DLC_OK=true
+    fi
+
+    if [ "${GAME_OK}" = true ] || [ "${DLC_OK}" = true ]
+    then
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
 done
 
 echo "--------------------------------------------"
