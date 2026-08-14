@@ -151,33 +151,18 @@ do
         *" ${TITLE_ID} "*) IS_API_SOURCED=true ;;
     esac
 
-    if [ "${IS_API_SOURCED}" = true ]
+    ### Precompute the folder name up front - identical formula to what
+    ### nps_ps3.sh derives internally - so it's known before the game
+    ### download (which may run in the background) has finished, or even
+    ### started. When the Title ID has no PS3_GAMES.tsv row at all (API-
+    ### sourced titles only), fall back to a DLC-only folder name via a
+    ### best-effort SerialStation name lookup.
+    GAME_MATCH="$(grep "^${TITLE_ID}" "${NPS_DIR}/PS3_GAMES.tsv" 2>/dev/null | tr -d '\r' | head -n1)"
+    if [ -n "${GAME_MATCH}" ]
     then
-        echo ""
-        echo "\"${TITLE_ID}\" was found via SerialStation search - checking DLC only."
-        GAME_STATUS=1
-    else
-        ### Download the chosen game
-        nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}"
-        GAME_STATUS=${?}
-
-        if [ ${GAME_STATUS} -eq 5 ]
-        then
-            echo ""
-            echo "Game already downloaded, continuing to DLC step."
-        elif [ ${GAME_STATUS} -ne 0 ]
-        then
-            echo ""
-            echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
-        fi
-    fi
-
-    ### Get name of the game folder from generated txt created via nps_ps3.sh,
-    ### or fall back to a DLC-only folder name when the Title ID has no
-    ### PS3_GAMES.tsv row at all (nps_ps3.sh never wrote the txt file).
-    if [ -f "${TITLE_ID}.txt" ]
-    then
-        FOLDER_NAME="$(cat "${TITLE_ID}.txt")"
+        GAME_REGION="$(echo "${GAME_MATCH}" | cut -f2)"
+        GAME_NAME="$(echo "${GAME_MATCH}" | cut -f3)"
+        FOLDER_NAME="$(sanitize_filename "${GAME_NAME}") [${TITLE_ID}] [${GAME_REGION}]"
     else
         # Best-effort, non-fatal lookup: unlike serialstation_fetch (which
         # exit()s loudly on failure), a lookup failure here must not abort
@@ -192,11 +177,47 @@ do
         fi
     fi
 
-    ### Download available DLC
+    GAME_PID=""
+    if [ "${IS_API_SOURCED}" = true ]
+    then
+        echo ""
+        echo "\"${TITLE_ID}\" was found via SerialStation search - checking DLC only."
+        GAME_STATUS=1
+    else
+        ### Kick off the game download in the background so it can proceed
+        ### concurrently with the DLC step below. stdin is severed
+        ### (/dev/null) so it never contends with nps_ps3_dlc.sh's
+        ### interactive picker for the terminal, and stdout/stderr are
+        ### captured to a log rather than interleaved live.
+        GAME_LOG="$(mktemp)"
+        nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}" < /dev/null > "${GAME_LOG}" 2>&1 &
+        GAME_PID=${!}
+    fi
+
+    ### Download available DLC (runs in the foreground, retaining full
+    ### interactive control, while the game downloads underneath)
     DESTDIR="${FOLDER_NAME}" NPS_DLC_AUTO_ALL="${NPS_DLC_AUTO_ALL}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
     DLC_STATUS=${?}
 
-    ### remove temporary game name file
+    if [ -n "${GAME_PID}" ]
+    then
+        wait "${GAME_PID}"
+        GAME_STATUS=${?}
+        cat "${GAME_LOG}"
+        rm -f "${GAME_LOG}"
+
+        if [ ${GAME_STATUS} -eq 5 ]
+        then
+            echo ""
+            echo "Game already downloaded, continuing to DLC step."
+        elif [ ${GAME_STATUS} -ne 0 ]
+        then
+            echo ""
+            echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
+        fi
+    fi
+
+    ### remove temporary game name file (written by nps_ps3.sh)
     rm -f "${TITLE_ID}.txt"
 
     ### Run post scripts

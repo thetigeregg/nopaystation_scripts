@@ -90,7 +90,14 @@ else
     while true
     do
         echo "Choose a region (1-${MATCH_COUNT}):"
-        read CHOICE
+        if ! read CHOICE
+        then
+            # EOF on stdin (e.g. running backgrounded/non-interactively
+            # with stdin redirected from /dev/null) - fail cleanly
+            # instead of spinning forever on immediate EOF reads.
+            echo "No input available to choose a region (running non-interactively?)."
+            exit 1
+        fi
         case "${CHOICE}" in
             ''|*[!0-9]*)
                 echo "Invalid selection."

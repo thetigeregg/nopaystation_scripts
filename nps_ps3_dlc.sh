@@ -92,7 +92,6 @@ ps3_dlc_region_guess() {
 }
 
 LIST=$(grep -E "${GREP_PATTERN}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,9,10")
-LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
 DISTINCT_REGIONS="$(echo "${LIST}" | cut -f1 | sort -u)"
 
 # Let the user pick which of the matched DLC to actually download, with
@@ -185,95 +184,151 @@ MISSING_COUNT=0
 EXISTING_COUNT=0
 FAILED_COUNT=0
 
-i=1
-while [ "${i}" -le "${LINE_COUNT}" ]
+# Apply the picker's selection (if it ran) to LIST, producing the final
+# set of rows to actually fetch.
+if [ "${PICKER_RAN}" = true ]
+then
+    FILTERED_LIST="$(echo "${LIST}" | awk -F'\t' -v ids=" ${SELECTED_CONTENT_IDS} " '{ if (index(ids, " " $5 " ") > 0) print }')"
+else
+    FILTERED_LIST="${LIST}"
+fi
+
+# Bounded parallel fan-out: each selected row is handed to a standalone
+# worker script (dispatched via xargs -P) that performs exactly what a
+# single loop iteration used to do, one item per process. Workers can't
+# mutate this shell's counters directly, so each writes a one-line
+# status (MISSING/EXISTING/FAILED/OK) to its own file in a results
+# directory, summed below once every worker has finished.
+NPS_DLC_PARALLEL="${NPS_DLC_PARALLEL:-4}"
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "${WORKDIR}"' EXIT
+RESULTS_DIR="${WORKDIR}/results"
+mkdir -p "${RESULTS_DIR}"
+
+# Rows are looked up by Content ID from this file rather than passed
+# through xargs directly - BSD xargs' "-I" substitution collapses
+# embedded tabs to spaces when building the replacement argument, which
+# silently corrupts every tab-delimited field, so only a single
+# whitespace-free token (the Content ID) is ever handed through xargs.
+ROWS_FILE="${WORKDIR}/rows.tsv"
+echo "${FILTERED_LIST}" > "${ROWS_FILE}"
+
+WORKER_SCRIPT="${WORKDIR}/download-item.sh"
+cat > "${WORKER_SCRIPT}" <<EOF
+#!/bin/sh
+. "${SCRIPT_DIR}/functions.sh"
+
+CONTENT_ID="\${1}"
+ROWS_FILE="\${2}"
+DESTDIR="\${3}"
+RESULTS_DIR="\${4}"
+
+ROW="\$(awk -F'\t' -v cid="\${CONTENT_ID}" '\$5 == cid { print; exit }' "\${ROWS_FILE}")"
+
+REGION="\$(echo "\${ROW}" | cut -f1)"
+NAME="\$(echo "\${ROW}" | cut -f2)"
+LINK="\$(echo "\${ROW}" | cut -f3)"
+RAP="\$(echo "\${ROW}" | cut -f4)"
+LIST_SHA256="\$(echo "\${ROW}" | cut -f7)"
+
+RESULT_FILE="\${RESULTS_DIR}/\${CONTENT_ID}"
+
+if [ "\${LINK}" = "MISSING" ]
+then
+    >&2 echo "Download link of \"\${CONTENT_ID}\" is missing."
+    echo "MISSING" > "\${RESULT_FILE}"
+    exit 0
+fi
+
+FILE_NAME="\$(sanitize_filename "\${NAME}") [\${CONTENT_ID}] [\${REGION}]"
+PKG_PATH="\${DESTDIR}/dlc/\${FILE_NAME}.pkg"
+RAP_PATH="\${DESTDIR}/dlc/\${FILE_NAME}.rap"
+
+PKG_EXISTS=false
+[ -f "\${PKG_PATH}" ] && PKG_EXISTS=true
+
+RAP_NEEDED=true
+case "\${RAP}" in
+    ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
+        RAP_NEEDED=false
+        ;;
+esac
+
+NEEDS_DOWNLOAD=false
+if [ "\${PKG_EXISTS}" = false ]
+then
+    NEEDS_DOWNLOAD=true
+elif [ "\${RAP_NEEDED}" = true ] && [ ! -f "\${RAP_PATH}" ]
+then
+    NEEDS_DOWNLOAD=true
+fi
+
+if [ "\${NEEDS_DOWNLOAD}" = false ]
+then
+    >&2 echo "File \"\${FILE_NAME}.pkg\" already exists."
+    echo "EXISTING" > "\${RESULT_FILE}"
+    exit 0
+fi
+
+if [ "\${PKG_EXISTS}" = false ]
+then
+    my_download_file "\${LINK}" "\${PKG_PATH}"
+    if [ \${?} -ne 0 ]
+    then
+        >&2 echo "Download of \"\${FILE_NAME}.pkg\" failed."
+        rm -f "\${PKG_PATH}"
+        echo "FAILED" > "\${RESULT_FILE}"
+        exit 0
+    fi
+
+    if [ -n "\${LIST_SHA256}" ]
+    then
+        FILE_SHA256="\$(my_sha256 "\${PKG_PATH}")"
+        if [ "\${FILE_SHA256}" != "\${LIST_SHA256}" ]
+        then
+            # Interactive confirm-and-keep-or-delete isn't viable with
+            # several workers running at once, so a mismatch is treated
+            # as a hard failure under parallel dispatch instead.
+            >&2 echo "Checksum of \"\${FILE_NAME}.pkg\" does not match the list - failing (no interactive prompt under parallel download)."
+            echo "FAILED" > "\${RESULT_FILE}"
+            exit 0
+        fi
+    fi
+fi
+
+if [ "\${RAP_NEEDED}" = true ] && [ ! -f "\${RAP_PATH}" ]
+then
+    my_download_file "https://nopaystation.com/tools/rap2file/\${CONTENT_ID}/\${RAP}" "\${RAP_PATH}"
+    if [ \${?} -ne 0 ]
+    then
+        >&2 echo "Download of RAP for \"\${FILE_NAME}\" failed."
+        rm -f "\${RAP_PATH}"
+        echo "FAILED" > "\${RESULT_FILE}"
+        exit 0
+    fi
+fi
+
+echo "OK" > "\${RESULT_FILE}"
+EOF
+chmod +x "${WORKER_SCRIPT}"
+
+mkdir -p "${DESTDIR}/dlc"
+
+cut -f5 "${ROWS_FILE}" | xargs -I{} -P "${NPS_DLC_PARALLEL}" "${WORKER_SCRIPT}" "{}" "${ROWS_FILE}" "${DESTDIR}" "${RESULTS_DIR}"
+
+for RESULT_FILE in "${RESULTS_DIR}"/*
 do
-    ROW=$(echo "${LIST}" | sed -n "${i}p")
-    i=$((i + 1))
-
-    REGION=$(echo "${ROW}" | cut -f1)
-    NAME=$(echo "${ROW}" | cut -f2)
-    LINK=$(echo "${ROW}" | cut -f3)
-    RAP=$(echo "${ROW}" | cut -f4)
-    CONTENT_ID=$(echo "${ROW}" | cut -f5)
-    LIST_SHA256=$(echo "${ROW}" | cut -f7)
-
-    if [ "${PICKER_RAN}" = true ]
-    then
-        case " ${SELECTED_CONTENT_IDS} " in
-            *" ${CONTENT_ID} "*) ;;
-            *) continue ;;
-        esac
-    fi
-
-    if [ "${LINK}" = "MISSING" ]
-    then
-        >&2 echo "Download link of \"${CONTENT_ID}\" is missing."
-        MISSING_COUNT=$((MISSING_COUNT + 1))
-        continue
-    fi
-
-    FILE_NAME="$(sanitize_filename "${NAME}") [${CONTENT_ID}] [${REGION}]"
-    PKG_PATH="${DESTDIR}/dlc/${FILE_NAME}.pkg"
-    RAP_PATH="${DESTDIR}/dlc/${FILE_NAME}.rap"
-
-    PKG_EXISTS=false
-    [ -f "${PKG_PATH}" ] && PKG_EXISTS=true
-
-    RAP_NEEDED=true
-    case "${RAP}" in
-        ""|"MISSING"|"NOT REQUIRED"|"UNLOCK/LICENSE BY DLC")
-            RAP_NEEDED=false
-            ;;
+    [ -e "${RESULT_FILE}" ] || continue
+    case "$(cat "${RESULT_FILE}")" in
+        MISSING) MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
+        EXISTING) EXISTING_COUNT=$((EXISTING_COUNT + 1)) ;;
+        FAILED) FAILED_COUNT=$((FAILED_COUNT + 1)) ;;
     esac
-
-    NEEDS_DOWNLOAD=false
-    if [ "${PKG_EXISTS}" = false ]
-    then
-        NEEDS_DOWNLOAD=true
-    elif [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
-    then
-        NEEDS_DOWNLOAD=true
-    fi
-
-    if [ "${NEEDS_DOWNLOAD}" = false ]
-    then
-        >&2 echo "File \"${FILE_NAME}.pkg\" already exists."
-        EXISTING_COUNT=$((EXISTING_COUNT + 1))
-        continue
-    fi
-
-    mkdir -p "${DESTDIR}/dlc"
-
-    if [ "${PKG_EXISTS}" = false ]
-    then
-        my_download_file "${LINK}" "${PKG_PATH}"
-        if [ ${?} -ne 0 ]
-        then
-            >&2 echo "Download of \"${FILE_NAME}.pkg\" failed."
-            rm -f "${PKG_PATH}"
-            FAILED_COUNT=$((FAILED_COUNT + 1))
-            continue
-        fi
-
-        if [ -n "${LIST_SHA256}" ]
-        then
-            FILE_SHA256="$(my_sha256 "${PKG_PATH}")"
-            compare_checksum "${LIST_SHA256}" "${FILE_SHA256}"
-        fi
-    fi
-
-    if [ "${RAP_NEEDED}" = true ] && [ ! -f "${RAP_PATH}" ]
-    then
-        my_download_file "https://nopaystation.com/tools/rap2file/${CONTENT_ID}/${RAP}" "${RAP_PATH}"
-        if [ ${?} -ne 0 ]
-        then
-            >&2 echo "Download of RAP for \"${FILE_NAME}\" failed."
-            rm -f "${RAP_PATH}"
-            FAILED_COUNT=$((FAILED_COUNT + 1))
-        fi
-    fi
 done
+
+rm -rf "${WORKDIR}"
+trap - EXIT
 
 if [ "${FAILED_COUNT}" -gt 0 ]
 then
