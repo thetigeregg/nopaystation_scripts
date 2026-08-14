@@ -75,6 +75,18 @@ then
     SELECTED_LINE="${MATCHES}"
     REGION=$(echo "${SELECTED_LINE}" | cut -f2)
     echo "Region: ${REGION}"
+elif [ ! -t 0 ]
+then
+    # Not running interactively (e.g. backgrounded by nps_ps3_bundle.sh,
+    # which severs stdin so it never contends with nps_ps3_dlc.sh's
+    # picker for the terminal) - there's no way to prompt, so fall back
+    # to the first matching row rather than failing outright. This
+    # matches nps_ps3_bundle.sh's own folder-name precomputation, which
+    # already assumes the first row in this same ambiguous case, so the
+    # two stay in agreement.
+    SELECTED_LINE=$(echo "${MATCHES}" | sed -n "1p")
+    REGION=$(echo "${SELECTED_LINE}" | cut -f2)
+    echo "Multiple regions found for \"${TITLE_ID}\"; running non-interactively, using the first one (${REGION})."
 else
     echo "Multiple regions found for \"${TITLE_ID}\":"
     i=1
@@ -92,9 +104,9 @@ else
         echo "Choose a region (1-${MATCH_COUNT}):"
         if ! read CHOICE
         then
-            # EOF on stdin (e.g. running backgrounded/non-interactively
-            # with stdin redirected from /dev/null) - fail cleanly
-            # instead of spinning forever on immediate EOF reads.
+            # EOF on stdin without stdin having been detected as a
+            # non-tty above (e.g. piped input that ran dry) - fail
+            # cleanly instead of spinning forever on immediate EOF reads.
             echo "No input available to choose a region (running non-interactively?)."
             exit 1
         fi
