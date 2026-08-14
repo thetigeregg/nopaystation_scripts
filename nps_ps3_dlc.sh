@@ -22,7 +22,7 @@ my_usage() {
     echo "${0} \"/path/to/PS3_DLCS.tsv\" \"BCUS01234\""
 }
 
-MY_BINARIES="sed grep file curl jq"
+MY_BINARIES="sed grep file curl jq fzf"
 sha256_choose; downloader_choose
 
 check_binaries "${MY_BINARIES}"
@@ -74,8 +74,47 @@ then
     exit 2
 fi
 
-LIST=$(grep -E "${GREP_PATTERN}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,10")
+LIST=$(grep -E "${GREP_PATTERN}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,9,10")
 LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
+
+# Let the user pick which of the matched DLC to actually download, with
+# everything pre-selected by default so Enter alone reproduces
+# download-everything (today's behavior). Skipped (defaults to
+# "everything") when NPS_DLC_AUTO_ALL=1 is set, or when not running
+# interactively, so scripted/batch usage never hangs on fzf input.
+SELECTED_CONTENT_IDS=""
+PICKER_RAN=false
+if [ "${NPS_DLC_AUTO_ALL}" != "1" ] && [ -t 0 ] && [ -t 1 ]
+then
+    PICKER_RAN=true
+    # human_size() is a shell function (not awk), so build the candidate
+    # list with a plain read loop rather than awk.
+    DLC_CANDIDATES="$(echo "${LIST}" | while IFS="$(printf '\t')" read -r REGION NAME LINK RAP CONTENT_ID SIZE SHA
+    do
+        [ -z "${CONTENT_ID}" ] && continue
+        DISPLAY_NAME="${NAME}"
+        if [ "${LINK}" = "MISSING" ]
+        then
+            DISPLAY_NAME="${DISPLAY_NAME} [NO LINK]"
+        fi
+        printf "%s\t%-7s %-8s %s\n" "${CONTENT_ID}" "${REGION}" "$(human_size "${SIZE}")" "${DISPLAY_NAME}"
+    done)"
+
+    SELECTED_CONTENT_IDS="$(echo "${DLC_CANDIDATES}" | fzf --multi --bind load:select-all \
+        --delimiter="$(printf '\t')" --with-nth=2.. \
+        --height=90% --border --prompt="Select DLC to download> " \
+        --header="enter:confirm selected  tab:toggle  esc:download none" \
+        | cut -f1 | tr '\n' ' ')"
+
+    # Esc (or deselecting everything) means "download none" - every row
+    # would just get filtered out of the loop below anyway, which without
+    # this check falls through to the final "else exit 0" (meant for a
+    # fully successful run), wrongly conflating "declined" with "success".
+    if [ -z "$(echo "${SELECTED_CONTENT_IDS}" | tr -d '[:space:]')" ]
+    then
+        exit 2
+    fi
+fi
 
 MISSING_COUNT=0
 EXISTING_COUNT=0
@@ -92,7 +131,15 @@ do
     LINK=$(echo "${ROW}" | cut -f3)
     RAP=$(echo "${ROW}" | cut -f4)
     CONTENT_ID=$(echo "${ROW}" | cut -f5)
-    LIST_SHA256=$(echo "${ROW}" | cut -f6)
+    LIST_SHA256=$(echo "${ROW}" | cut -f7)
+
+    if [ "${PICKER_RAN}" = true ]
+    then
+        case " ${SELECTED_CONTENT_IDS} " in
+            *" ${CONTENT_ID} "*) ;;
+            *) continue ;;
+        esac
+    fi
 
     if [ "${LINK}" = "MISSING" ]
     then

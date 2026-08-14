@@ -14,12 +14,15 @@ my_usage(){
     echo "Parameters:"
     echo "--nps-dir|-d <DIR>               path to the directory containing the tsv files"
     echo "--title-id|-t <TITLE ID(S)>      one or more title IDs, quoted and space-separated"
+    echo "--all-dlc|-a                     download every available DLC without prompting"
     echo ""
     echo "\"--nps-dir\" is always required. Omit \"--title-id\" to open an"
     echo "interactive title search (supports selecting multiple games) instead."
+    echo "By default you'll be asked which DLC to download per title (all"
+    echo "pre-selected); \"--all-dlc\" skips that prompt for batch runs."
     echo ""
     echo "Usage:"
-    echo "${0} --nps-dir </path/to/nps/directory> [--title-id \"<TITLE ID> [<TITLE ID> ...]\"]"
+    echo "${0} --nps-dir </path/to/nps/directory> [--title-id \"<TITLE ID> [<TITLE ID> ...]\"] [--all-dlc]"
 }
 
 ### check if nps tsv file directory exists
@@ -50,6 +53,9 @@ do
             test_nps_dir "${1}"
             NPS_DIR="${1}"
             shift
+            ;;
+        -a|--all-dlc)
+            NPS_DLC_AUTO_ALL=1
             ;;
         *)
             echo "Invalid parameter used."
@@ -186,7 +192,7 @@ do
     fi
 
     ### Download available DLC
-    DESTDIR="${FOLDER_NAME}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
+    DESTDIR="${FOLDER_NAME}" NPS_DLC_AUTO_ALL="${NPS_DLC_AUTO_ALL}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
     DLC_STATUS=${?}
 
     ### remove temporary game name file
