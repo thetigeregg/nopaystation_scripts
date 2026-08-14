@@ -142,7 +142,10 @@ human_size() {
 # clipboard - works over ssh/docker exec since both just relay the raw
 # pty byte stream, no forwarding needed. Support is terminal-dependent
 # (iTerm2, Kitty, WezTerm, Windows Terminal, tmux with set-clipboard on,
-# ...); if unsupported the escape sequence is simply ignored.
+# ...); if unsupported the escape sequence is simply ignored. Written
+# straight to /dev/tty rather than stdout - callers (e.g. fzf's
+# execute-silent) may discard/redirect stdout, but the terminal itself
+# is still reachable through /dev/tty regardless.
 my_copy_to_clipboard() {
     local TEXT="${1}"
     local B64
@@ -154,9 +157,9 @@ my_copy_to_clipboard() {
         # inner ESC, so tmux forwards it to the outer terminal instead of
         # swallowing it (needed on tmux versions/configs that don't
         # natively translate OSC52 themselves)
-        printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "${B64}"
+        printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "${B64}" > /dev/tty
     else
-        printf '\033]52;c;%s\a' "${B64}"
+        printf '\033]52;c;%s\a' "${B64}" > /dev/tty
     fi
 }
 
@@ -175,7 +178,7 @@ my_open_url() {
         xdg-open "${URL}" > /dev/null 2>&1 &
     else
         my_copy_to_clipboard "${URL}"
-        echo "No browser opener available. Attempted to copy to your local clipboard via OSC 52 (works over SSH/tmux if your terminal supports it) - if that didn't work, here's the URL: ${URL}"
+        echo "No browser opener available. Attempted to copy to your local clipboard via OSC 52 (works over SSH/tmux if your terminal supports it) - if that didn't work, here's the URL: ${URL}" > /dev/tty
     fi
 }
 
