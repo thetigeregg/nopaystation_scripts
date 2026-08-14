@@ -23,8 +23,8 @@ my_usage() {
     echo "Omit the Title ID to open an interactive title search instead."
 }
 
-MY_BINARIES="sed grep file fzf"
-sha256_choose; downloader_choose
+MY_BINARIES="sed grep file fzf aria2c"
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 

@@ -20,8 +20,8 @@ my_usage() {
     echo "${0} \"/path/to/PSM.tsv\" \"PCSE00986\""
 }
 
-MY_BINARIES="pkg2zip sed grep file t7z"
-sha256_choose; downloader_choose
+MY_BINARIES="pkg2zip sed grep file t7z aria2c"
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 

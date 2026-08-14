@@ -25,27 +25,20 @@ my_sha256() {
     esac
 }
 
-downloader_choose() {
-    if which wget > /dev/null 2>&1
-    then
-        MY_BINARIES="${MY_BINARIES} wget"
-        DOWNLOADER="wget"
-    else
-        MY_BINARIES="${MY_BINARIES} curl"
-        DOWNLOADER="curl"
-    fi
-}
-
+# aria2c is a mandatory dependency (see check_binaries calls in every
+# script that downloads files) - multi-connection segmentation and real
+# byte-offset resume made single-stream wget/curl downloads the primary
+# throughput bottleneck for large PS3 pkgs.
 my_download_file() {
     local url="${1}"
     local destination="${2}"
-
-    case "${DOWNLOADER}" in
-        "wget")
-        wget --no-verbose --show-progress -O "${destination}" "${url}" ;;
-        "curl")
-        curl --progress-bar -o "${destination}" "${url}" ;;
-    esac
+    local out_dir out_file
+    out_dir="$(dirname "${destination}")"
+    out_file="$(basename "${destination}")"
+    mkdir -p "${out_dir}"
+    aria2c --dir="${out_dir}" --out="${out_file}" \
+        --continue=true --max-connection-per-server=4 --split=4 \
+        "${url}"
 }
 
 check_binaries(){

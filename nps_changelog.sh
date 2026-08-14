@@ -13,7 +13,7 @@ my_usage() {
 }
 
 MY_BINARIES="pkg2zip sed"
-sha256_choose; downloader_choose
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 

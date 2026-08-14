@@ -22,8 +22,8 @@ my_usage() {
     echo "${0} \"/path/to/PS3_DLCS.tsv\" \"BCUS01234\""
 }
 
-MY_BINARIES="sed grep file curl jq fzf"
-sha256_choose; downloader_choose
+MY_BINARIES="sed grep file curl jq fzf aria2c"
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 

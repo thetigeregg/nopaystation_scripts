@@ -28,8 +28,8 @@ my_usage(){
     echo "${0} \"PCSE00986\""
 }
 
-MY_BINARIES="pkg2zip sed grep file python3 pyNPU.py t7z"
-sha256_choose; downloader_choose
+MY_BINARIES="pkg2zip sed grep file python3 pyNPU.py t7z aria2c"
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 

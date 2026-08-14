@@ -12,7 +12,8 @@ or all DLC of a PS Vita game, PSM or PSP games.
 ## Requirements
 * a working internet connection
 * posix shell (bash, ksh, zsh, sh)
-* curl or wget
+* [*aria2c*](https://aria2.github.io/) - all file downloads go through it (multi-connection + resumable)
+* curl - still required separately by the PS3 scripts for the SerialStation API/jq integration
 * [*pkg2zip*](https://github.com/lusid1/pkg2zip) (please migrate to lusid1's fork as mmozeiko abandoned his project)
 * latest [*torrent7z*](https://github.com/BubblesInTheTub/torrent7z)
 * python3 + python3-lxml (install it via package manager or pip)

@@ -19,8 +19,8 @@ my_usage() {
     echo "${0} \"/path/to/PSP_GAME.tsv\" \"ULUS00001\""
 }
 
-MY_BINARIES="pkg2zip sed"
-sha256_choose; downloader_choose
+MY_BINARIES="pkg2zip sed aria2c"
+sha256_choose
 
 check_binaries "${MY_BINARIES}"
 
