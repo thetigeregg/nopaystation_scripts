@@ -15,10 +15,11 @@ my_usage(){
     echo "--nps-dir|-d <DIR>               path to the directory containing the tsv files"
     echo "--title-id|-t <TITLE ID(S)>      one or more title IDs, quoted and space-separated"
     echo ""
-    echo "All parameters are required."
+    echo "\"--nps-dir\" is always required. Omit \"--title-id\" to open an"
+    echo "interactive title search (supports selecting multiple games) instead."
     echo ""
     echo "Usage:"
-    echo "${0} --nps-dir </path/to/nps/directory> --title-id \"<TITLE ID> [<TITLE ID> ...]\""
+    echo "${0} --nps-dir </path/to/nps/directory> [--title-id \"<TITLE ID> [<TITLE ID> ...]\"]"
 }
 
 ### check if nps tsv file directory exists
@@ -60,31 +61,16 @@ do
 done
 
 # check if necessary binaries are available
-MY_BINARIES="sed grep file"
+MY_BINARIES="sed grep file curl jq fzf"
 check_binaries "${MY_BINARIES}"
 
-if [ -z "${TITLE_ID_ARG}" ]
-then
-    echo "ERROR:"
-    echo "<TITLE ID> is missing."
-    echo 'Use "-t <TITLE ID>" parameter'
-    exit 1
-elif [ -z "${NPS_DIR}" ]
+if [ -z "${NPS_DIR}" ]
 then
     echo "ERROR:"
     echo "<NPS DIR> is missing."
     echo 'Use "-d <NPS DIR>" parameter'
     exit 1
 fi
-
-# split and validate every title ID up front, before any downloads start
-TITLE_IDS=""
-for id in ${TITLE_ID_ARG}
-do
-    check_valid_ps3_id "${id}"
-    id=$(echo "${id}" | tr '[:lower:]' '[:upper:]')
-    TITLE_IDS="${TITLE_IDS} ${id}"
-done
 
 ### check if nps tsv file directory exists
 if [ ! -d "${NPS_DIR}" ]
@@ -103,6 +89,25 @@ do
         echo "*.tsv file \"${tsv_file}\" in path \"${NPS_DIR}\" missing."
         exit 1
     fi
+done
+
+if [ -z "${TITLE_ID_ARG}" ]
+then
+    TITLE_ID_ARG="$(ps3_typeahead_search "${NPS_DIR}/PS3_GAMES.tsv" "1" | tr '\n' ' ')"
+    if [ -z "$(echo "${TITLE_ID_ARG}" | tr -d '[:space:]')" ]
+    then
+        echo "No games selected."
+        exit 1
+    fi
+fi
+
+# split and validate every title ID up front, before any downloads start
+TITLE_IDS=""
+for id in ${TITLE_ID_ARG}
+do
+    check_valid_ps3_id "${id}"
+    id=$(echo "${id}" | tr '[:lower:]' '[:upper:]')
+    TITLE_IDS="${TITLE_IDS} ${id}"
 done
 
 SUCCESS_COUNT=0

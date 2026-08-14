@@ -127,6 +127,104 @@ check_valid_psp_id() {
     fi
 }
 
+human_size() {
+    local BYTES="${1}"
+    awk -v bytes="${BYTES}" 'BEGIN {
+        if (bytes !~ /^[0-9]+$/) { print "?"; exit }
+        split("B KB MB GB TB", units, " ")
+        i = 1
+        while (bytes >= 1024 && i < 5) { bytes /= 1024; i++ }
+        printf "%.1f%s", bytes, units[i]
+    }'
+}
+
+# Interactive fzf-driven search over a PS3_GAMES.tsv by game name, showing
+# Title ID / Region / Media Type / Size for disambiguation between a game's
+# many releases (physical vs digital, per-region, re-releases). Prints the
+# selected Title ID(s) on stdout (one per line if MULTI="1"); prints nothing
+# if the user cancels without selecting anything.
+ps3_typeahead_search() {
+    local GAMES_TSV="${1}"
+    local MULTI="${2}"
+
+    local CANDIDATES
+    CANDIDATES="$(tail -n +2 "${GAMES_TSV}" | tr -d '\r' | awk -F'\t' '
+        function human(bytes,    units, i) {
+            if (bytes !~ /^[0-9]+$/) return "?"
+            split("B KB MB GB TB", units, " ")
+            i = 1
+            while (bytes >= 1024 && i < 5) { bytes /= 1024; i++ }
+            return sprintf("%.1f%s", bytes, units[i])
+        }
+        {
+            id = $1; region = $2; name = $3; link = $4; size = $9
+            type = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
+            if (link == "MISSING" || link == "CART ONLY") name = name " [NO LINK]"
+            printf "%s\t%-9s %-7s %-8s %-8s %s\n", id, id, region, type, human(size), name
+        }
+    ')"
+
+    if [ "${MULTI}" = "1" ]
+    then
+        echo "${CANDIDATES}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. --multi \
+            --height=90% --border --prompt="Search PS3 game title> " | cut -f1
+    else
+        echo "${CANDIDATES}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. \
+            --height=90% --border --prompt="Search PS3 game title> " | cut -f1
+    fi
+}
+
+SERIALSTATION_API_BASE="https://api.serialstation.com/v1"
+
+serialstation_fetch() {
+    local URL="${1}"
+    local RESPONSE
+
+    RESPONSE="$(curl -fsS "${URL}")"
+    if [ ${?} -ne 0 ] || [ -z "${RESPONSE}" ]
+    then
+        echo "ERROR: failed to reach SerialStation API (\"${URL}\")." >&2
+        exit 3
+    fi
+    echo "${RESPONSE}"
+}
+
+# Print every Title ID (one per line, including the one given) that
+# SerialStation considers part of the same game as ${1}. Requires
+# NPS_DIR to be set (used to locate/create the on-disk cache).
+serialstation_related_title_ids() {
+    local TITLE_ID="${1}"
+    local CACHE_DIR="${NPS_DIR}/.serialstation_cache"
+    local CACHE_FILE="${CACHE_DIR}/${TITLE_ID}.ids"
+
+    if [ -f "${CACHE_FILE}" ]
+    then
+        cat "${CACHE_FILE}"
+        return 0
+    fi
+
+    local TITLE_JSON GAME_IDS GAME_ID GAME_JSON
+    TITLE_JSON="$(serialstation_fetch "${SERIALSTATION_API_BASE}/title-ids/${TITLE_ID}")"
+
+    GAME_IDS="$(echo "${TITLE_JSON}" | jq -r '.games[].id // empty')"
+    if [ -z "${GAME_IDS}" ]
+    then
+        echo "ERROR: SerialStation has no game mapping for Title ID \"${TITLE_ID}\"." >&2
+        exit 3
+    fi
+
+    mkdir -p "${CACHE_DIR}"
+
+    {
+        echo "${TITLE_ID}"
+        for GAME_ID in ${GAME_IDS}
+        do
+            GAME_JSON="$(serialstation_fetch "${SERIALSTATION_API_BASE}/games/${GAME_ID}")"
+            echo "${GAME_JSON}" | jq -r '.title_ids[]'
+        done
+    } | sort -u | tee "${CACHE_FILE}"
+}
+
 check_valid_ps3_id() {
     local TITLE_ID="${1}"
     if ! echo "${TITLE_ID}" | grep -q -E -i '[A-Z]{4}[0-9]{5}'

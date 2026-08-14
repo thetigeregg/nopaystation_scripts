@@ -18,10 +18,12 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$(which "${0}")")")"
 my_usage() {
     echo ""
     echo "Usage:"
-    echo "${0} \"/path/to/PS3_GAMES.tsv\" \"BCUS01234\""
+    echo "${0} \"/path/to/PS3_GAMES.tsv\" [\"BCUS01234\"]"
+    echo ""
+    echo "Omit the Title ID to open an interactive title search instead."
 }
 
-MY_BINARIES="sed grep file"
+MY_BINARIES="sed grep file fzf"
 sha256_choose; downloader_choose
 
 check_binaries "${MY_BINARIES}"
@@ -37,11 +39,15 @@ then
     my_usage
     exit 1
 fi
+
 if [ -z "${TITLE_ID}" ]
 then
-    echo "No game ID found."
-    my_usage
-    exit 1
+    TITLE_ID="$(ps3_typeahead_search "${TSV_FILE}" "")"
+    if [ -z "${TITLE_ID}" ]
+    then
+        echo "No game selected."
+        exit 1
+    fi
 fi
 
 check_valid_ps3_id "${TITLE_ID}"

@@ -5,6 +5,7 @@
 # return codes:
 # 1 user errors
 # 2 no DLC available
+# 3 SerialStation lookup failed (API unreachable or Title ID unmapped)
 # 4 not all links available
 # 5 one or more DLC already downloaded (skipped)
 # 6 one or more downloads failed
@@ -21,7 +22,7 @@ my_usage() {
     echo "${0} \"/path/to/PS3_DLCS.tsv\" \"BCUS01234\""
 }
 
-MY_BINARIES="sed grep file"
+MY_BINARIES="sed grep file curl jq"
 sha256_choose; downloader_choose
 
 check_binaries "${MY_BINARIES}"
@@ -53,12 +54,27 @@ then
     DESTDIR="${GAME_ID}"
 fi
 
-if ! grep -q "^${GAME_ID}" "${TSV_FILE}"
+# A game can have several Title IDs (physical/digital, per region, re-releases),
+# and DLC is often filed under a different one than the game itself was downloaded
+# with. Resolve the full family of related Title IDs via SerialStation so DLC
+# filed under a sibling ID is still found.
+NPS_DIR="$(dirname "${TSV_FILE}")"
+RELATED_IDS="$(serialstation_related_title_ids "${GAME_ID}")"
+if [ ${?} -ne 0 ]
+then
+    # serialstation_related_title_ids runs in a subshell here (command
+    # substitution), so its "exit 3" only terminates that subshell -
+    # propagate the failure explicitly.
+    exit 3
+fi
+GREP_PATTERN="^($(echo "${RELATED_IDS}" | tr '\n' '|' | sed 's/|$//'))"
+
+if ! grep -q -E "${GREP_PATTERN}" "${TSV_FILE}"
 then
     exit 2
 fi
 
-LIST=$(grep "^${GAME_ID}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,10")
+LIST=$(grep -E "${GREP_PATTERN}" "${TSV_FILE}" | tr -d '\r' | cut -f"2,3,4,5,6,10")
 LINE_COUNT=$(echo "${LIST}" | wc -l | tr -d ' ')
 
 MISSING_COUNT=0

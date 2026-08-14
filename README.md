@@ -115,6 +115,18 @@ For example:
 ```
 I can recommend [this](http://renascene.com/psp/) site for searching title IDs.
 
+### nps\_ps3.sh / nps\_ps3\_bundle.sh
+These download PS3 games (and, via `nps_ps3_bundle.sh`, their DLC too) and require `fzf` in
+addition to the usual dependencies. Since a single PS3 game can have many valid Title IDs
+(physical disc vs. digital, per region, re-releases), the Title ID parameter is optional:
+omit it and an interactive search over the game's title opens instead, showing Title ID,
+region, media type and file size for each candidate so you can pick the exact release you want.
+```bash
+./nps_ps3.sh /path/to/PS3_GAMES.tsv            # opens search
+./nps_ps3.sh /path/to/PS3_GAMES.tsv BCUS01234   # exact Title ID, same as before
+./nps_ps3_bundle.sh -d /path/to/tsv/directory   # opens search, supports selecting multiple games
+```
+
 ### nps\_bundle.sh
 Requirements:
 * pkg2zip and the optionally mktorrent If you want to use the source flag, you need mktorrent >= 1.1
