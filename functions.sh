@@ -138,9 +138,33 @@ human_size() {
     }'
 }
 
+# Writes an OSC 52 escape sequence to set the LOCAL terminal emulator's
+# clipboard - works over ssh/docker exec since both just relay the raw
+# pty byte stream, no forwarding needed. Support is terminal-dependent
+# (iTerm2, Kitty, WezTerm, Windows Terminal, tmux with set-clipboard on,
+# ...); if unsupported the escape sequence is simply ignored.
+my_copy_to_clipboard() {
+    local TEXT="${1}"
+    local B64
+    B64="$(printf '%s' "${TEXT}" | base64 | tr -d '\n')"
+
+    if [ -n "${TMUX}" ]
+    then
+        # tmux DCS passthrough: wrap the OSC52 sequence, doubling the
+        # inner ESC, so tmux forwards it to the outer terminal instead of
+        # swallowing it (needed on tmux versions/configs that don't
+        # natively translate OSC52 themselves)
+        printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "${B64}"
+    else
+        printf '\033]52;c;%s\a' "${B64}"
+    fi
+}
+
 # Best-effort browser opener: tries `open` (macOS) then `xdg-open`
-# (Linux/BSD/WSL), backgrounded; degrades to just printing the URL if
-# neither exists. Not a hard dependency of any script.
+# (Linux/BSD/WSL), backgrounded; degrades to an OSC 52 clipboard-copy
+# attempt (see my_copy_to_clipboard) plus printing the URL if neither
+# exists - the printed URL stays as a manual fallback since OSC 52
+# support isn't guaranteed. Not a hard dependency of any script.
 my_open_url() {
     local URL="${1}"
     if which open > /dev/null 2>&1
@@ -150,7 +174,8 @@ my_open_url() {
     then
         xdg-open "${URL}" > /dev/null 2>&1 &
     else
-        echo "Open this URL in your browser: ${URL}"
+        my_copy_to_clipboard "${URL}"
+        echo "No browser opener available. Attempted to copy to your local clipboard via OSC 52 (works over SSH/tmux if your terminal supports it) - if that didn't work, here's the URL: ${URL}"
     fi
 }
 
