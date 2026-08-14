@@ -138,17 +138,67 @@ human_size() {
     }'
 }
 
-# Interactive fzf-driven search over a PS3_GAMES.tsv by game name, showing
-# Title ID / Region / Media Type / Size for disambiguation between a game's
-# many releases (physical vs digital, per-region, re-releases). Prints the
-# selected Title ID(s) on stdout (one per line if MULTI="1"); prints nothing
-# if the user cancels without selecting anything.
+# Best-effort browser opener: tries `open` (macOS) then `xdg-open`
+# (Linux/BSD/WSL), backgrounded; degrades to just printing the URL if
+# neither exists. Not a hard dependency of any script.
+my_open_url() {
+    local URL="${1}"
+    if which open > /dev/null 2>&1
+    then
+        open "${URL}" > /dev/null 2>&1 &
+    elif which xdg-open > /dev/null 2>&1
+    then
+        xdg-open "${URL}" > /dev/null 2>&1 &
+    else
+        echo "Open this URL in your browser: ${URL}"
+    fi
+}
+
+# One-shot search of SerialStation's title-id database by name (PS3 only).
+# Prints candidates in the same "<TITLE_ID>\t<display line>" shape used by
+# the local PS3_GAMES.tsv candidates, so callers can treat both sources
+# identically. No Region/Size columns - the API doesn't carry them.
+ps3_serialstation_search() {
+    local QUERY="${1}"
+
+    if [ -z "${QUERY}" ]
+    then
+        return 0
+    fi
+
+    curl -fsS -G \
+        --data-urlencode "name=${QUERY}" \
+        --data-urlencode "system=PS3" \
+        --data-urlencode "limit=50" \
+        "${SERIALSTATION_API_BASE}/title-ids/" 2>/dev/null \
+    | jq -r '.items[] | [.title_id, .title_id_type, .content_type, .name] | @tsv' 2>/dev/null \
+    | awk -F'\t' '
+        {
+            id = $1; ctype = $3; name = $4
+            type = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
+            printf "%s\t%-9s %-8s %-6s %s\n", id, id, type, ctype, name
+        }
+    '
+}
+
+# Interactive fzf-driven search for a PS3 Title ID by game name. Starts
+# from the local PS3_GAMES.tsv (Title ID / Region / Media Type / Size
+# columns), with in-session key bindings to switch to a one-shot
+# SerialStation name search (ctrl-s - finds titles PS3_GAMES.tsv has no
+# row for at all), back to the local results (ctrl-r), and to open the
+# highlighted title's SerialStation page in a browser (ctrl-o). Prints the
+# selected Title ID(s) on stdout (one per line if MULTI="1"); prints
+# nothing if the user cancels without selecting anything.
 ps3_typeahead_search() {
     local GAMES_TSV="${1}"
     local MULTI="${2}"
 
-    local CANDIDATES
-    CANDIDATES="$(tail -n +2 "${GAMES_TSV}" | tr -d '\r' | awk -F'\t' '
+    local WORKDIR
+    WORKDIR="$(mktemp -d)"
+    trap 'rm -rf "${WORKDIR}"' EXIT
+
+    local CANDIDATES_FILE="${WORKDIR}/local.tsv"
+    tail -n +2 "${GAMES_TSV}" | tr -d '\r' | awk -F'\t' '
         function human(bytes,    units, i) {
             if (bytes !~ /^[0-9]+$/) return "?"
             split("B KB MB GB TB", units, " ")
@@ -162,16 +212,47 @@ ps3_typeahead_search() {
             if (link == "MISSING" || link == "CART ONLY") name = name " [NO LINK]"
             printf "%s\t%-9s %-7s %-8s %-8s %s\n", id, id, region, type, human(size), name
         }
-    ')"
+    ' > "${CANDIDATES_FILE}"
 
+    # Standalone helper scripts referenced directly by the key bindings
+    # below, instead of inlining logic into fzf's reload()/execute()
+    # strings - keeps fzf's own paren/quote parsing out of the picture,
+    # and lets fzf pass {q}/{1} as a single safely-quoted argument (matters
+    # for query text like "asura's wrath").
+    local SEARCH_SCRIPT="${WORKDIR}/search-api.sh"
+    cat > "${SEARCH_SCRIPT}" <<EOF
+#!/bin/sh
+. "${SCRIPT_DIR}/functions.sh"
+ps3_serialstation_search "\${1}"
+EOF
+    chmod +x "${SEARCH_SCRIPT}"
+
+    local OPEN_SCRIPT="${WORKDIR}/open-url.sh"
+    cat > "${OPEN_SCRIPT}" <<EOF
+#!/bin/sh
+. "${SCRIPT_DIR}/functions.sh"
+ID="\${1}"
+TYPE="\$(echo "\${ID}" | cut -c1-4)"
+NUMBER="\$(echo "\${ID}" | cut -c5-9)"
+my_open_url "https://serialstation.com/titles/\${TYPE}/\${NUMBER}"
+EOF
+    chmod +x "${OPEN_SCRIPT}"
+
+    local HEADER="enter:select  tab:multi-select  ctrl-s:search SerialStation  ctrl-r:back to local results  ctrl-o:open on SerialStation"
+
+    local MULTI_FLAG=""
     if [ "${MULTI}" = "1" ]
     then
-        echo "${CANDIDATES}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. --multi \
-            --height=90% --border --prompt="Search PS3 game title> " | cut -f1
-    else
-        echo "${CANDIDATES}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. \
-            --height=90% --border --prompt="Search PS3 game title> " | cut -f1
+        MULTI_FLAG="--multi"
     fi
+
+    cat "${CANDIDATES_FILE}" | fzf --delimiter="$(printf '\t')" --with-nth=2.. ${MULTI_FLAG} \
+        --height=90% --border --prompt="Search PS3 game title> " \
+        --header="${HEADER}" \
+        --bind "ctrl-s:reload(${SEARCH_SCRIPT} {q})" \
+        --bind "ctrl-r:reload(cat ${CANDIDATES_FILE})" \
+        --bind "ctrl-o:execute-silent(${OPEN_SCRIPT} {1})" \
+        | cut -f1
 }
 
 SERIALSTATION_API_BASE="https://api.serialstation.com/v1"
