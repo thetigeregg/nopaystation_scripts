@@ -192,6 +192,23 @@ do
         GAME_LOG="$(mktemp)"
         nps_ps3.sh "${NPS_DIR}/PS3_GAMES.tsv" "${TITLE_ID}" < /dev/null > "${GAME_LOG}" 2>&1 &
         GAME_PID=${!}
+
+        # The game's own output is only printed in full after it finishes
+        # (see below) so it doesn't interleave with the DLC step's picker -
+        # but that leaves no visible sign it's progressing at all for
+        # anything but a short download, so poll its log for aria2c's
+        # periodic "(NN%)" summary line and echo just that line while it
+        # runs. aria2c only emits those summaries periodically when its
+        # output isn't a tty (true here, since stdout is redirected to
+        # GAME_LOG) - my_download_file sets --summary-interval=5 so they
+        # show up often enough to be useful.
+        ( while kill -0 "${GAME_PID}" 2>/dev/null
+          do
+              sleep 5
+              LAST_PROGRESS="$(grep -E '\([0-9]+%\)' "${GAME_LOG}" 2>/dev/null | tail -n1)"
+              [ -n "${LAST_PROGRESS}" ] && echo "[game] ${LAST_PROGRESS}"
+          done ) &
+        MONITOR_PID=${!}
     fi
 
     ### Download available DLC (runs in the foreground, retaining full
@@ -203,6 +220,8 @@ do
     then
         wait "${GAME_PID}"
         GAME_STATUS=${?}
+        kill "${MONITOR_PID}" 2>/dev/null
+        wait "${MONITOR_PID}" 2>/dev/null
         cat "${GAME_LOG}"
         rm -f "${GAME_LOG}"
 

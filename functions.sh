@@ -38,6 +38,7 @@ my_download_file() {
     mkdir -p "${out_dir}"
     aria2c --dir="${out_dir}" --out="${out_file}" \
         --continue=true --max-connection-per-server=4 --split=4 \
+        --summary-interval=5 \
         "${url}"
 }
 
