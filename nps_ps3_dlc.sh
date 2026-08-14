@@ -100,10 +100,23 @@ then
         printf "%s\t%-7s %-8s %s\n" "${CONTENT_ID}" "${REGION}" "$(human_size "${SIZE}")" "${DISPLAY_NAME}"
     done)"
 
-    SELECTED_CONTENT_IDS="$(echo "${DLC_CANDIDATES}" | fzf --multi --bind load:select-all \
+    # Older fzf builds (e.g. the version apt installs on Debian bullseye)
+    # don't support the "load" lifecycle-event bind at all and abort
+    # immediately with "unsupported key: load" rather than launching -
+    # probe for it non-interactively first so this degrades gracefully
+    # instead of crashing on those builds.
+    SELECT_ALL_BIND="--bind load:select-all"
+    FZF_HEADER="enter:confirm selected  tab:toggle  esc:download none"
+    if printf 'x\n' | fzf --bind load:select-all --filter '' 2>&1 >/dev/null | grep -q "unsupported key"
+    then
+        SELECT_ALL_BIND=""
+        FZF_HEADER="ctrl-a:select all  ${FZF_HEADER}"
+    fi
+
+    SELECTED_CONTENT_IDS="$(echo "${DLC_CANDIDATES}" | fzf --multi ${SELECT_ALL_BIND} --bind ctrl-a:select-all \
         --delimiter="$(printf '\t')" --with-nth=2.. \
         --height=90% --border --prompt="Select DLC to download> " \
-        --header="enter:confirm selected  tab:toggle  esc:download none" \
+        --header="${FZF_HEADER}" \
         | cut -f1 | tr '\n' ' ')"
 
     # Esc (or deselecting everything) means "download none" - every row
