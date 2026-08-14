@@ -157,7 +157,11 @@ my_open_url() {
 # One-shot search of SerialStation's title-id database by name (PS3 only).
 # Prints candidates in the same "<TITLE_ID>\t<display line>" shape used by
 # the local PS3_GAMES.tsv candidates, so callers can treat both sources
-# identically. No Region/Size columns - the API doesn't carry them.
+# identically. No Size column - the API doesn't carry it. Region is
+# inferred from the 3rd letter of the Title ID type (documented for both
+# physical and digital formats) - coarse, same ceiling as NPS's own TSV
+# Region column, and can't distinguish sub-regions like Brazil from USA
+# (both are "U").
 ps3_serialstation_search() {
     local QUERY="${1}"
 
@@ -173,10 +177,24 @@ ps3_serialstation_search() {
         "${SERIALSTATION_API_BASE}/title-ids/" 2>/dev/null \
     | jq -r '.items[] | [.title_id, .title_id_type, .content_type, .name] | @tsv' 2>/dev/null \
     | awk -F'\t' '
+        function region(type_code,    c) {
+            c = substr(type_code, 3, 1)
+            if (c == "A") return "Asia"
+            if (c == "C") return "China"
+            if (c == "E") return "Europe"
+            if (c == "H") return "Hong Kong"
+            if (c == "I") return "Internal"
+            if (c == "J") return "Japan"
+            if (c == "K") return "Korea"
+            if (c == "P") return "Japan"
+            if (c == "U") return "USA"
+            if (c == "X") return "Firmware/SDK"
+            return "?"
+        }
         {
-            id = $1; ctype = $3; name = $4
-            type = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
-            printf "%s\t%-9s %-8s %-6s %s\n", id, id, type, ctype, name
+            id = $1; ttype = $2; ctype = $3; name = $4
+            mtype = (substr(id, 1, 2) == "NP") ? "Digital" : "Physical"
+            printf "%s\t%-9s %-11s %-8s %-6s %s\n", id, id, region(ttype), mtype, ctype, name
         }
     '
 }
