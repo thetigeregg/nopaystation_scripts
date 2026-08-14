@@ -136,6 +136,7 @@ done
 
 SUCCESS_COUNT=0
 FAIL_COUNT=0
+NOTHING_FOUND_COUNT=0
 
 for TITLE_ID in ${TITLE_IDS}
 do
@@ -223,13 +224,22 @@ do
     if [ "${GAME_OK}" = true ] || [ "${DLC_OK}" = true ]
     then
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    elif [ "${IS_API_SOURCED}" = true ]
+    then
+        # A SerialStation search is speculative - checking whether an ID
+        # NPS doesn't already have locally happens to have anything.
+        # Coming up empty is a legitimate outcome of that search, not an
+        # error, so it's tracked separately rather than as a failure.
+        echo ""
+        echo "Nothing found for \"${TITLE_ID}\" via SerialStation search (not counted as a failure)."
+        NOTHING_FOUND_COUNT=$((NOTHING_FOUND_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 done
 
 echo "--------------------------------------------"
-echo "Finished: ${SUCCESS_COUNT} succeeded, ${FAIL_COUNT} failed."
+echo "Finished: ${SUCCESS_COUNT} succeeded, ${FAIL_COUNT} failed, ${NOTHING_FOUND_COUNT} found nothing via search."
 
 if [ ${FAIL_COUNT} -gt 0 ]
 then

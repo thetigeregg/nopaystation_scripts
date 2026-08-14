@@ -65,12 +65,14 @@ then
     # serialstation_related_title_ids runs in a subshell here (command
     # substitution), so its "exit 3" only terminates that subshell -
     # propagate the failure explicitly.
+    >&2 echo "Could not resolve related Title IDs for \"${GAME_ID}\" via SerialStation."
     exit 3
 fi
 GREP_PATTERN="^($(echo "${RELATED_IDS}" | tr '\n' '|' | sed 's/|$//'))"
 
 if ! grep -q -E "${GREP_PATTERN}" "${TSV_FILE}"
 then
+    >&2 echo "No DLC found for \"${GAME_ID}\" (checked its full related Title ID family)."
     exit 2
 fi
 
