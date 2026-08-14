@@ -177,8 +177,12 @@ my_open_url() {
     then
         xdg-open "${URL}" > /dev/null 2>&1 &
     else
+        # Silent, like the open/xdg-open branches above: OSC 52 itself is
+        # a non-printing escape sequence, but a visible confirmation
+        # message here would collide with fzf's own live redraw (this is
+        # normally invoked from ps3_typeahead_search's ctrl-o binding)
+        # and corrupt the on-screen UI.
         my_copy_to_clipboard "${URL}"
-        echo "No browser opener available. Attempted to copy to your local clipboard via OSC 52 (works over SSH/tmux if your terminal supports it) - if that didn't work, here's the URL: ${URL}" > /dev/tty
     fi
 }
 
