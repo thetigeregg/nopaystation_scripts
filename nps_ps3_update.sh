@@ -189,12 +189,19 @@ URL="\$(echo "\${ROW}" | cut -f4)"
 
 RESULT_FILE="\${RESULTS_DIR}/\${VERSION}"
 
-FILE_NAME="Update v\${VERSION} [\${TITLE_ID}]"
-PKG_PATH="\${DESTDIR}/updates/\${FILE_NAME}.pkg"
+# Human-readable per-version folder (today's old flat filename formula,
+# now a folder name) since Sony's update CDN sends no Content-Disposition
+# (confirmed live) - the pkg inside it keeps its real URL-basename name
+# instead of being renamed.
+VERSION_DIR="\${DESTDIR}/updates/Update v\${VERSION} [\${TITLE_ID}]"
+PKG_FILENAME="\$(basename "\${URL}" | sed 's/?.*//')"
+PKG_PATH="\${VERSION_DIR}/\${PKG_FILENAME}"
 
-if [ -f "\${PKG_PATH}" ]
+# The pkg's filename isn't ours to control, so "already downloaded" is
+# judged by whether the version folder already has any pkg in it at all.
+if [ -n "\$(find "\${VERSION_DIR}" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ]
 then
-    >&2 echo "File \"\${FILE_NAME}.pkg\" already exists."
+    >&2 echo "An update pkg for version \${VERSION} already exists in \"\${VERSION_DIR}\"."
     echo "EXISTING" > "\${RESULT_FILE}"
     exit 0
 fi
@@ -202,7 +209,7 @@ fi
 my_download_file "\${URL}" "\${PKG_PATH}"
 if [ \${?} -ne 0 ]
 then
-    >&2 echo "Download of \"\${FILE_NAME}.pkg\" failed."
+    >&2 echo "Download of \"\${PKG_FILENAME}\" (update v\${VERSION}) failed."
     rm -f "\${PKG_PATH}"
     echo "FAILED" > "\${RESULT_FILE}"
     exit 0
@@ -215,7 +222,7 @@ then
     then
         # No interactive confirm-and-keep prompt under parallel dispatch,
         # same rule already established in nps_ps3_dlc.sh's worker.
-        >&2 echo "Checksum of \"\${FILE_NAME}.pkg\" does not match Sony's update manifest - failing (no interactive prompt under parallel download)."
+        >&2 echo "Checksum of \"\${PKG_FILENAME}\" (update v\${VERSION}) does not match Sony's update manifest - failing (no interactive prompt under parallel download)."
         rm -f "\${PKG_PATH}"
         echo "FAILED" > "\${RESULT_FILE}"
         exit 0

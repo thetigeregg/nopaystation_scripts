@@ -152,11 +152,20 @@ then
     echo "\"${TITLE_ID}\" is only available via cartridge"
     exit 3
 else
-    PKG_PATH="${FOLDER_NAME}/${FOLDER_NAME}.pkg"
-    RAP_PATH="${FOLDER_NAME}/${FOLDER_NAME}.rap"
+    # Keep the source's own filenames rather than renaming - the pkg CDN
+    # sends no Content-Disposition (confirmed live), so its URL basename
+    # is the only real "source name"; NPS's rap2file tool does send one
+    # (confirmed live: "Content-Disposition: ...filename=<CONTENT_ID>.rap"),
+    # which is exactly ${CONTENT_ID}.rap.
+    PKG_FILENAME="$(basename "${LINK}" | sed 's/?.*//')"
+    PKG_PATH="${FOLDER_NAME}/${PKG_FILENAME}"
+    RAP_PATH="${FOLDER_NAME}/${CONTENT_ID}.rap"
 
+    # The pkg's filename isn't ours to control, so "already downloaded"
+    # is judged by whether the folder already has any pkg in it at all,
+    # not by an exact path match.
     PKG_EXISTS=false
-    [ -f "${PKG_PATH}" ] && PKG_EXISTS=true
+    [ -n "$(find "${FOLDER_NAME}" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ] && PKG_EXISTS=true
 
     RAP_NEEDED=true
     case "${RAP}" in
@@ -177,7 +186,7 @@ else
     if [ "${NEEDS_DOWNLOAD}" = false ]
     then
         # print this to stderr
-        >&2 echo "File \"${PKG_PATH}\" already exists."
+        >&2 echo "A pkg for \"${TITLE_ID}\" already exists in \"${FOLDER_NAME}\"."
         exit 5
     fi
 

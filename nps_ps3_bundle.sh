@@ -285,14 +285,18 @@ do
         GAME_OK=true
     fi
 
+    # DLC/update pkgs now live one level deeper, each in its own
+    # human-readable per-item/per-version folder (dlc/<item>/*.pkg,
+    # updates/<version>/*.pkg) since they keep their original,
+    # non-renamed source filenames - maxdepth 2 to still find them.
     DLC_OK=false
-    if [ -d "${FOLDER_NAME}/dlc" ] && [ -n "$(find "${FOLDER_NAME}/dlc" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ]
+    if [ -d "${FOLDER_NAME}/dlc" ] && [ -n "$(find "${FOLDER_NAME}/dlc" -maxdepth 2 -type f -name "*.pkg" 2>/dev/null)" ]
     then
         DLC_OK=true
     fi
 
     UPDATE_OK=false
-    if [ -d "${FOLDER_NAME}/updates" ] && [ -n "$(find "${FOLDER_NAME}/updates" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ]
+    if [ -d "${FOLDER_NAME}/updates" ] && [ -n "$(find "${FOLDER_NAME}/updates" -maxdepth 2 -type f -name "*.pkg" 2>/dev/null)" ]
     then
         UPDATE_OK=true
     fi

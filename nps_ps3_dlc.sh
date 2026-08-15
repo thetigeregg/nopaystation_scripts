@@ -255,12 +255,21 @@ then
     exit 0
 fi
 
-FILE_NAME="\$(sanitize_filename "\${NAME}") [\${CONTENT_ID}] [\${REGION}]"
-PKG_PATH="\${DESTDIR}/dlc/\${FILE_NAME}.pkg"
-RAP_PATH="\${DESTDIR}/dlc/\${FILE_NAME}.rap"
+# Human-readable per-item folder (today's old flat filename formula,
+# now a folder name) since the pkg's own source filename is typically a
+# non-human-readable CDN hash - the pkg/rap inside it keep their real
+# source names instead of being renamed (rap2file sends a real
+# Content-Disposition: filename=\${CONTENT_ID}.rap, confirmed live; the
+# pkg CDN sends none, so its URL basename is the only real source name).
+ITEM_DIR="\${DESTDIR}/dlc/\$(sanitize_filename "\${NAME}") [\${CONTENT_ID}] [\${REGION}]"
+PKG_FILENAME="\$(basename "\${LINK}" | sed 's/?.*//')"
+PKG_PATH="\${ITEM_DIR}/\${PKG_FILENAME}"
+RAP_PATH="\${ITEM_DIR}/\${CONTENT_ID}.rap"
 
+# The pkg's filename isn't ours to control, so "already downloaded" is
+# judged by whether the item folder already has any pkg in it at all.
 PKG_EXISTS=false
-[ -f "\${PKG_PATH}" ] && PKG_EXISTS=true
+[ -n "\$(find "\${ITEM_DIR}" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ] && PKG_EXISTS=true
 
 RAP_NEEDED=true
 case "\${RAP}" in
@@ -280,7 +289,7 @@ fi
 
 if [ "\${NEEDS_DOWNLOAD}" = false ]
 then
-    >&2 echo "File \"\${FILE_NAME}.pkg\" already exists."
+    >&2 echo "A pkg for \"\${NAME}\" [\${CONTENT_ID}] already exists in \"\${ITEM_DIR}\"."
     echo "EXISTING" > "\${RESULT_FILE}"
     exit 0
 fi
@@ -290,7 +299,7 @@ then
     my_download_file "\${LINK}" "\${PKG_PATH}"
     if [ \${?} -ne 0 ]
     then
-        >&2 echo "Download of \"\${FILE_NAME}.pkg\" failed."
+        >&2 echo "Download of \"\${PKG_FILENAME}\" (\${NAME}) failed."
         rm -f "\${PKG_PATH}"
         echo "FAILED" > "\${RESULT_FILE}"
         exit 0
@@ -304,7 +313,7 @@ then
             # Interactive confirm-and-keep-or-delete isn't viable with
             # several workers running at once, so a mismatch is treated
             # as a hard failure under parallel dispatch instead.
-            >&2 echo "Checksum of \"\${FILE_NAME}.pkg\" does not match the list - failing (no interactive prompt under parallel download)."
+            >&2 echo "Checksum of \"\${PKG_FILENAME}\" (\${NAME}) does not match the list - failing (no interactive prompt under parallel download)."
             echo "FAILED" > "\${RESULT_FILE}"
             exit 0
         fi
@@ -316,7 +325,7 @@ then
     my_download_file "https://nopaystation.com/tools/rap2file/\${CONTENT_ID}/\${RAP}" "\${RAP_PATH}"
     if [ \${?} -ne 0 ]
     then
-        >&2 echo "Download of RAP for \"\${FILE_NAME}\" failed."
+        >&2 echo "Download of RAP for \"\${NAME}\" [\${CONTENT_ID}] failed."
         rm -f "\${RAP_PATH}"
         echo "FAILED" > "\${RESULT_FILE}"
         exit 0
