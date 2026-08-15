@@ -178,8 +178,14 @@ do
     fi
 
     GAME_PID=""
-    if [ "${IS_API_SOURCED}" = true ]
+    if [ "${IS_API_SOURCED}" = true ] && [ -z "${GAME_MATCH}" ]
     then
+        # Only skip the game download when the Title ID picked via
+        # SerialStation search genuinely has no PS3_GAMES.tsv row - it's
+        # possible for a title to be found through that search mode and
+        # still have a real local row (e.g. it just wasn't surfaced by
+        # the local-results search text), in which case the download
+        # should proceed as normal.
         echo ""
         echo "\"${TITLE_ID}\" was found via SerialStation search - checking DLC only."
         GAME_STATUS=1

@@ -5,10 +5,13 @@
 # return codes:
 # 1 user errors
 # 2 no DLC available
-# 3 SerialStation lookup failed (API unreachable or Title ID unmapped)
 # 4 not all links available
 # 5 one or more DLC already downloaded (skipped)
 # 6 one or more downloads failed
+#
+# note: a SerialStation family-widening lookup failure (API unreachable,
+# or the Title ID has no "games" mapping) no longer aborts the script -
+# it falls back to matching the exact Title ID only and continues.
 
 # get directory where the scripts are located
 SCRIPT_DIR="$(dirname "$(readlink -f "$(which "${0}")")")"
@@ -59,14 +62,20 @@ fi
 # with. Resolve the full family of related Title IDs via SerialStation so DLC
 # filed under a sibling ID is still found.
 NPS_DIR="$(dirname "${TSV_FILE}")"
-RELATED_IDS="$(serialstation_related_title_ids "${GAME_ID}")"
-if [ ${?} -ne 0 ]
+RELATED_IDS="$(serialstation_related_title_ids "${GAME_ID}" 2>/dev/null)"
+if [ ${?} -ne 0 ] || [ -z "${RELATED_IDS}" ]
 then
     # serialstation_related_title_ids runs in a subshell here (command
-    # substitution), so its "exit 3" only terminates that subshell -
-    # propagate the failure explicitly.
-    >&2 echo "Could not resolve related Title IDs for \"${GAME_ID}\" via SerialStation."
-    exit 3
+    # substitution), so its "exit 3" only terminates that subshell - this
+    # branch just means the family-widening lookup itself didn't work
+    # (SerialStation unreachable, or it has no "games" mapping for this
+    # Title ID - both observed in practice, independent of whether NPS's
+    # own TSV actually has real rows under this exact ID). That's not
+    # reason enough to give up: fall back to matching the exact Title ID
+    # only, which is exactly what a plain, unresolved lookup would have
+    # done anyway before this family-widening feature existed.
+    >&2 echo "Could not resolve related Title IDs for \"${GAME_ID}\" via SerialStation; falling back to an exact Title ID match only."
+    RELATED_IDS="${GAME_ID}"
 fi
 GREP_PATTERN="^($(echo "${RELATED_IDS}" | tr '\n' '|' | sed 's/|$//'))"
 
