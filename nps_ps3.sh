@@ -156,16 +156,19 @@ else
     # sends no Content-Disposition (confirmed live), so its URL basename
     # is the only real "source name"; NPS's rap2file tool does send one
     # (confirmed live: "Content-Disposition: ...filename=<CONTENT_ID>.rap"),
-    # which is exactly ${CONTENT_ID}.rap.
+    # which is exactly ${CONTENT_ID}.rap. They live in a same-named
+    # subfolder of FOLDER_NAME (not FOLDER_NAME itself), mirroring the
+    # per-item subfolder DLC/updates already get.
+    PKG_DIR="${FOLDER_NAME}/${FOLDER_NAME}"
     PKG_FILENAME="$(basename "${LINK}" | sed 's/?.*//')"
-    PKG_PATH="${FOLDER_NAME}/${PKG_FILENAME}"
-    RAP_PATH="${FOLDER_NAME}/${CONTENT_ID}.rap"
+    PKG_PATH="${PKG_DIR}/${PKG_FILENAME}"
+    RAP_PATH="${PKG_DIR}/${CONTENT_ID}.rap"
 
     # The pkg's filename isn't ours to control, so "already downloaded"
     # is judged by whether the folder already has any pkg in it at all,
     # not by an exact path match.
     PKG_EXISTS=false
-    [ -n "$(find "${FOLDER_NAME}" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ] && PKG_EXISTS=true
+    [ -n "$(find "${PKG_DIR}" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ] && PKG_EXISTS=true
 
     RAP_NEEDED=true
     case "${RAP}" in
@@ -186,11 +189,11 @@ else
     if [ "${NEEDS_DOWNLOAD}" = false ]
     then
         # print this to stderr
-        >&2 echo "A pkg for \"${TITLE_ID}\" already exists in \"${FOLDER_NAME}\"."
+        >&2 echo "A pkg for \"${TITLE_ID}\" already exists in \"${PKG_DIR}\"."
         exit 5
     fi
 
-    mkdir -p "${FOLDER_NAME}"
+    mkdir -p "${PKG_DIR}"
 
     if [ "${PKG_EXISTS}" = false ]
     then
