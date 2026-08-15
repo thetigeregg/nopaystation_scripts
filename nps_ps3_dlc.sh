@@ -227,6 +227,11 @@ WORKER_SCRIPT="${WORKDIR}/download-item.sh"
 cat > "${WORKER_SCRIPT}" <<EOF
 #!/bin/sh
 . "${SCRIPT_DIR}/functions.sh"
+# xargs -P dispatches this as a separate process, so it doesn't inherit
+# the parent script's \$SHA256 tool-selector variable - sha256_choose
+# must be called again here or my_sha256 silently hashes nothing, making
+# every checksum comparison a spurious mismatch.
+sha256_choose
 
 CONTENT_ID="\${1}"
 ROWS_FILE="\${2}"

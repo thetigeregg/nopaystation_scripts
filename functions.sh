@@ -25,6 +25,52 @@ my_sha256() {
     esac
 }
 
+# PS3 update pkgs are hashed by Sony's own update servers (see
+# my_sha1_truncated below), which uses SHA-1, not SHA-256 - a separate
+# choice/helper pair mirroring sha256_choose/my_sha256 above.
+sha1_choose() {
+    if which sha1sum > /dev/null 2>&1
+    then
+        MY_BINARIES="${MY_BINARIES} sha1sum"
+        SHA1="sha1sum"
+    else
+        MY_BINARIES="${MY_BINARIES} shasum"
+        SHA1="shasum"
+    fi
+}
+
+my_sha1() {
+    local file="${1}"
+
+    case "$SHA1" in
+        "sha1sum")
+        sha1sum "${file}" | awk '{ print $1 }' ;;
+        "shasum")
+        shasum -a 1 "${file}" | awk '{ print $1 }' ;;
+    esac
+}
+
+# Sony's PS3 update-package sha1sum (from the titlepatch XML) is computed
+# over the file with its trailing 32 bytes excluded - confirmed against
+# rusty-psn's own hashing logic. Hashing the whole file will never match.
+my_sha1_truncated() {
+    local file="${1}"
+    local total_size trunc_size
+
+    total_size="$(wc -c < "${file}" | tr -d ' ')"
+    trunc_size=$((total_size - 32))
+    head -c "${trunc_size}" "${file}" | my_sha1_stdin
+}
+
+my_sha1_stdin() {
+    case "$SHA1" in
+        "sha1sum")
+        sha1sum | awk '{ print $1 }' ;;
+        "shasum")
+        shasum -a 1 | awk '{ print $1 }' ;;
+    esac
+}
+
 # aria2c is a mandatory dependency (see check_binaries calls in every
 # script that downloads files) - multi-connection segmentation and real
 # byte-offset resume made single-stream wget/curl downloads the primary

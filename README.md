@@ -117,15 +117,31 @@ For example:
 I can recommend [this](http://renascene.com/psp/) site for searching title IDs.
 
 ### nps\_ps3.sh / nps\_ps3\_bundle.sh
-These download PS3 games (and, via `nps_ps3_bundle.sh`, their DLC too) and require `fzf` in
-addition to the usual dependencies. Since a single PS3 game can have many valid Title IDs
+These download PS3 games (and, via `nps_ps3_bundle.sh`, their DLC and updates too) and require
+`fzf` in addition to the usual dependencies. Since a single PS3 game can have many valid Title IDs
 (physical disc vs. digital, per region, re-releases), the Title ID parameter is optional:
 omit it and an interactive search over the game's title opens instead, showing Title ID,
 region, media type and file size for each candidate so you can pick the exact release you want.
+`nps_ps3_bundle.sh` is the all-in-one entry point: per title, it downloads the game, every
+selected DLC item, and every selected update version, concurrently where possible.
 ```bash
 ./nps_ps3.sh /path/to/PS3_GAMES.tsv            # opens search
 ./nps_ps3.sh /path/to/PS3_GAMES.tsv BCUS01234   # exact Title ID, same as before
 ./nps_ps3_bundle.sh -d /path/to/tsv/directory   # opens search, supports selecting multiple games
+./nps_ps3_bundle.sh -d /path/to/tsv/directory -t BCUS01234 -a -u   # exact ID, all DLC + all updates
+```
+
+### nps\_ps3\_update.sh
+Downloads PS3 game updates - unlike every other script here, this data isn't part of any
+NoPayStation `*.tsv` file, so there's no TSV argument: updates are fetched live, per Title ID,
+straight from Sony's own PSN update servers. By default only the latest update version is
+downloaded (or, when run interactively, an `fzf` picker lets you choose specific versions, with
+the latest pre-selected). Set `NPS_UPDATE_AUTO_ALL=1` to grab every available version instead.
+`nps_ps3_bundle.sh` runs this automatically for every title (see `-u`/`--all-updates` above) -
+you generally only need to call it directly for one-off update downloads outside a bundle run.
+```bash
+./nps_ps3_update.sh BCUS01234                        # latest version only (or picker, if interactive)
+NPS_UPDATE_AUTO_ALL=1 ./nps_ps3_update.sh BCUS01234   # every available update version
 ```
 
 ### nps\_bundle.sh

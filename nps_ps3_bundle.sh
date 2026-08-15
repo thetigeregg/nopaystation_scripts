@@ -15,14 +15,17 @@ my_usage(){
     echo "--nps-dir|-d <DIR>               path to the directory containing the tsv files"
     echo "--title-id|-t <TITLE ID(S)>      one or more title IDs, quoted and space-separated"
     echo "--all-dlc|-a                     download every available DLC without prompting"
+    echo "--all-updates|-u                 download every available update version without prompting"
     echo ""
     echo "\"--nps-dir\" is always required. Omit \"--title-id\" to open an"
     echo "interactive title search (supports selecting multiple games) instead."
-    echo "By default you'll be asked which DLC to download per title (all"
-    echo "pre-selected); \"--all-dlc\" skips that prompt for batch runs."
+    echo "By default you'll be asked which DLC/update version to download per"
+    echo "title (all/latest pre-selected); \"--all-dlc\"/\"--all-updates\" skip"
+    echo "those prompts for batch runs. Game updates come live from Sony's own"
+    echo "servers, independent of the *.tsv files, so they're always attempted."
     echo ""
     echo "Usage:"
-    echo "${0} --nps-dir </path/to/nps/directory> [--title-id \"<TITLE ID> [<TITLE ID> ...]\"] [--all-dlc]"
+    echo "${0} --nps-dir </path/to/nps/directory> [--title-id \"<TITLE ID> [<TITLE ID> ...]\"] [--all-dlc] [--all-updates]"
 }
 
 ### check if nps tsv file directory exists
@@ -56,6 +59,9 @@ do
             ;;
         -a|--all-dlc)
             NPS_DLC_AUTO_ALL=1
+            ;;
+        -u|--all-updates)
+            NPS_UPDATE_AUTO_ALL=1
             ;;
         *)
             echo "Invalid parameter used."
@@ -217,8 +223,21 @@ do
         MONITOR_PID=${!}
     fi
 
+    ### Kick off the update download in the background too - unlike the
+    ### game/DLC, updates come live from Sony's own servers and don't
+    ### depend on PS3_GAMES.tsv/PS3_DLCS.tsv or SerialStation at all, so
+    ### they're attempted for every Title ID unconditionally, regardless
+    ### of IS_API_SOURCED/GAME_MATCH. No interactive picker to worry about
+    ### here (nps_ps3_update.sh auto-bypasses to latest-only, or every
+    ### version with NPS_UPDATE_AUTO_ALL=1, whenever stdin isn't a tty),
+    ### so this can safely run fully backgrounded alongside the game.
+    UPDATE_LOG="$(mktemp)"
+    DESTDIR="${FOLDER_NAME}" NPS_UPDATE_AUTO_ALL="${NPS_UPDATE_AUTO_ALL}" \
+        nps_ps3_update.sh "${TITLE_ID}" < /dev/null > "${UPDATE_LOG}" 2>&1 &
+    UPDATE_PID=${!}
+
     ### Download available DLC (runs in the foreground, retaining full
-    ### interactive control, while the game downloads underneath)
+    ### interactive control, while the game and updates download underneath)
     DESTDIR="${FOLDER_NAME}" NPS_DLC_AUTO_ALL="${NPS_DLC_AUTO_ALL}" nps_ps3_dlc.sh "${NPS_DIR}/PS3_DLCS.tsv" "${TITLE_ID}"
     DLC_STATUS=${?}
 
@@ -241,6 +260,11 @@ do
             echo "Game cannot be downloaded. Still checking for DLC for \"${TITLE_ID}\"."
         fi
     fi
+
+    wait "${UPDATE_PID}"
+    UPDATE_STATUS=${?}
+    cat "${UPDATE_LOG}"
+    rm -f "${UPDATE_LOG}"
 
     ### remove temporary game name file (written by nps_ps3.sh)
     rm -f "${TITLE_ID}.txt"
@@ -267,7 +291,13 @@ do
         DLC_OK=true
     fi
 
-    if [ "${GAME_OK}" = true ] || [ "${DLC_OK}" = true ]
+    UPDATE_OK=false
+    if [ -d "${FOLDER_NAME}/updates" ] && [ -n "$(find "${FOLDER_NAME}/updates" -maxdepth 1 -type f -name "*.pkg" 2>/dev/null)" ]
+    then
+        UPDATE_OK=true
+    fi
+
+    if [ "${GAME_OK}" = true ] || [ "${DLC_OK}" = true ] || [ "${UPDATE_OK}" = true ]
     then
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     elif [ "${IS_API_SOURCED}" = true ]
